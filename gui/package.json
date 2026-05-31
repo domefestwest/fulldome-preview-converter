@@ -1,0 +1,64 @@
+{
+  "name": "fulldome-preview-converter",
+  "version": "0.1.0-alpha.1",
+  "description": "Fulldome fisheye to 16:9 preview converter for Dome Fest West",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "vite build",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "make": "electron-builder"
+  },
+  "keywords": ["fulldome", "ffmpeg", "video", "converter"],
+  "author": "Dome Fest West",
+  "license": "MIT",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^36.2.1",
+    "electron-builder": "^26.0.12",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "build": {
+    "appId": "com.domefestwest.fulldome-converter",
+    "productName": "Fulldome Preview Converter",
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "convert.py",
+      "bin/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../convert.py",
+        "to": "convert.py"
+      },
+      {
+        "from": "../bin/",
+        "to": "bin/",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [{"target": "dmg", "arch": ["arm64", "x64"]}]
+    },
+    "win": {
+      "target": [{"target": "nsis", "arch": ["x64"]}]
+    },
+    "linux": {
+      "target": [{"target": "AppImage", "arch": ["x64"]}],
+      "category": "Video"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

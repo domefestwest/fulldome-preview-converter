@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+gui/node_modules/
+node_modules/
+
+# Build output
+gui/dist/
+dist/
+out/
+
+# Electron builder artifacts
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+
+# FFmpeg binaries (download separately — see README)
+bin/ffmpeg
+bin/ffmpeg.exe
+bin/ffprobe
+bin/ffprobe.exe
+
+# Test outputs — don't commit video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# But keep the context folder's test file referenced in docs
+!context/*.mp4
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.local
+*.pem

@@ -1,0 +1,33 @@
+.group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.btn:hover:not(.active) {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.active {
+  background: var(--orange);
+  color: #fff;
+  font-weight: 600;
+}
