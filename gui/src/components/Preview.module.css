@@ -1,48 +1,80 @@
-.wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ---- Unified drop zone / preview zone ---- */
+.zone {
+  border-radius: var(--radius);
+  border: 2px dashed var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+  position: relative;
 }
 
-.header {
+.zone.empty {
+  min-height: 180px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
 }
 
-.label {
-  font-size: 11px;
+.zone.dragging {
+  border-color: var(--orange) !important;
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface)) !important;
+}
+
+/* Once a file is loaded, drop border becomes subtle solid */
+.zone:not(.empty) {
+  border-style: solid;
+  border-color: var(--border);
+}
+
+.zone.disabled { opacity: 0.6; pointer-events: none; }
+
+.hiddenInput { display: none; }
+
+/* ---- Empty state ---- */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 20px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  outline: none;
+}
+
+.emptyState:hover .uploadIcon { color: var(--orange); }
+.emptyState:hover .browseLink { text-decoration: underline; }
+
+.uploadIcon {
+  width: 38px;
+  height: 38px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  transition: color 0.15s;
+}
+
+.emptyTitle {
+  font-size: 14px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.emptySub {
+  font-size: 12px;
   color: var(--text-muted);
 }
 
-.loadingBadge {
-  font-size: 11px;
-  color: var(--gold);
-  animation: pulse 1s ease-in-out infinite;
+.browseLink {
+  color: var(--orange);
+  cursor: pointer;
 }
 
-.timecode {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  margin-left: auto;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
-}
-
+/* ---- Canvas wrapper ---- */
 .canvasWrapper {
   position: relative;
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #000;
   line-height: 0;
+  background: #000;
 }
 
 .canvas {
@@ -52,9 +84,7 @@
   transition: opacity 0.2s;
 }
 
-.canvas.dimmed {
-  opacity: 0.4;
-}
+.canvas.dimmed { opacity: 0.35; }
 
 .loadingOverlay {
   position: absolute;
@@ -66,23 +96,85 @@
 }
 
 .spinner {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border: 3px solid rgba(237,139,30,0.2);
   border-top-color: var(--orange);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- File info bar (overlaid on canvas bottom) ---- */
+.fileBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
+  pointer-events: none;
 }
 
-/* Scrubber */
+.fileName {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.fileMeta {
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.timecode {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.changeBtn {
+  pointer-events: all;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-sm);
+  color: rgba(255,255,255,0.8);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.changeBtn:hover:not(:disabled) {
+  background: rgba(237,139,30,0.35);
+  border-color: var(--orange);
+  color: #fff;
+}
+.changeBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ---- Scrubber ---- */
 .scrubRow {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 8px 10px 6px;
 }
 
 .scrubLabel {

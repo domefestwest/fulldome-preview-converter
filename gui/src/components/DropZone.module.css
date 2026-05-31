@@ -97,3 +97,64 @@
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/* ---- Compact bar (file loaded) ---- */
+.compactBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-height: 44px;
+  transition: border-color 0.15s;
+}
+.compactBar.dragging {
+  border-color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface));
+}
+.compactBar.disabled { opacity: 0.5; }
+
+.compactIcon {
+  width: 18px;
+  height: 18px;
+  color: var(--orange);
+  flex-shrink: 0;
+}
+
+.compactName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.compactMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.compactChange {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.compactChange:hover:not(:disabled) {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.compactChange:disabled { opacity: 0.4; cursor: not-allowed; }

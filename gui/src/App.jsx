@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import styles from "./App.module.css";
-import DropZone from "./components/DropZone.jsx";
 import ToggleGroup from "./components/ToggleGroup.jsx";
 import Slider from "./components/Slider.jsx";
 import PipPositionPicker from "./components/PipPositionPicker.jsx";
@@ -14,16 +13,35 @@ const CRF_PRESETS = [
   { value: "draft",    label: "Draft",    crf: 26 },
   { value: "standard", label: "Standard", crf: 18 },
   { value: "high",     label: "High",     crf: 12 },
+  { value: "manual",   label: "Manual",   crf: null },
 ];
 
+const IMAGE_EXTS = new Set([
+  "jpg","jpeg","png","tif","tiff","exr","dpx","tga","bmp","webp","psd",
+]);
+
+function getFileType(filePath) {
+  const ext = filePath.split(".").pop().toLowerCase();
+  return IMAGE_EXTS.has(ext) ? "image" : "video";
+}
+
 const DEFAULT_STATE = {
-  resolution: "4k",
-  sweetSpot: 30,
-  pipSize: 480,
-  pipMargin: 40,
-  pipPosition: "br",
-  audio: "stereo",
-  quality: "standard",
+  resolution:        "4k",
+  sweetSpot:         30,
+  pipSize:           480,
+  pipEnabled:        true,
+  pipMargin:         40,
+  pipPosition:       "br",
+  audio:             "stereo",
+  quality:           "standard",
+  scale:             100,
+  hPan:              50,
+  bitrateKbps:       20000,
+  burninEnabled:     false,
+  burninTitle:       "",
+  burninFilename:    false,
+  burninFramenumber: false,
+  outputImageFormat: "jpg",
 };
 
 function loadSavedSettings() {
@@ -35,16 +53,24 @@ function loadSavedSettings() {
   }
 }
 
-export default function App() {
-  const [file, setFile]             = useState(null);
-  const [fileDuration, setFileDuration] = useState(null);
-  const [frameSrc, setFrameSrc]     = useState(null);
-  const [frameLoading, setFrameLoading] = useState(false);
-  const [outputPath, setOutputPath] = useState("");
-  const [settings, setSettings]     = useState(loadSavedSettings);
+const TABS = [
+  { id: "framing", label: "Background Image" },
+  { id: "pip",     label: "Picture-in-Picture" },
+  { id: "export",  label: "Export" },
+];
 
-  const [status, setStatus]     = useState("idle"); // idle | converting | done | error
-  const [progress, setProgress] = useState(0);
+export default function App() {
+  const [file, setFile]                 = useState(null);
+  const [fileType, setFileType]         = useState("video");
+  const [fileDuration, setFileDuration] = useState(null);
+  const [frameSrc, setFrameSrc]         = useState(null);
+  const [frameLoading, setFrameLoading] = useState(false);
+  const [outputPath, setOutputPath]     = useState("");
+  const [settings, setSettings]         = useState(loadSavedSettings);
+  const [activeTab, setActiveTab]       = useState("framing");
+
+  const [status, setStatus]       = useState("idle");
+  const [progress, setProgress]   = useState(0);
   const [startTime, setStartTime] = useState(null);
   const [errorText, setErrorText] = useState("");
   const [doneOutput, setDoneOutput] = useState("");
@@ -53,37 +79,45 @@ export default function App() {
   const isElectron = typeof window.api !== "undefined";
   const platform   = window.api?.platform || "darwin";
 
-  // ---- persist settings ----
+  // Prevent Electron from navigating when files are dragged over non-target areas
+  useEffect(() => {
+    const prevent = (e) => e.preventDefault();
+    document.addEventListener("dragover", prevent);
+    document.addEventListener("drop", prevent);
+    return () => {
+      document.removeEventListener("dragover", prevent);
+      document.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem("dfw-settings", JSON.stringify(settings));
   }, [settings]);
 
-  // ---- register IPC listeners ----
   useEffect(() => {
     if (!isElectron) return;
     const offProgress = window.api.onProgress(({ pct }) => setProgress(pct));
     const offDone = window.api.onConversionDone(({ outputPath: op }) => {
-      setStatus("done");
-      setProgress(100);
-      setDoneOutput(op);
+      setStatus("done"); setProgress(100); setDoneOutput(op);
     });
     const offError = window.api.onConversionError(({ message }) => {
-      setStatus("error");
-      setErrorText(message);
+      setStatus("error"); setErrorText(message);
     });
     return () => { offProgress(); offDone(); offError(); };
   }, [isElectron]);
 
-  // ---- auto output path ----
   useEffect(() => {
     if (!file) return;
-    const base = file.path.replace(/\.mp4$/i, "");
-    setOutputPath(`${base}_${settings.resolution}_preview.mp4`);
-  }, [file, settings.resolution]);
+    const base = file.path.replace(/\.[^.]+$/, "");
+    const suffix = `_${settings.resolution}_preview`;
+    setOutputPath(fileType === "image"
+      ? `${base}${suffix}.${settings.outputImageFormat}`
+      : `${base}${suffix}.mp4`
+    );
+  }, [file, settings.resolution, fileType, settings.outputImageFormat]);
 
   const set = (key) => (val) => setSettings((s) => ({ ...s, [key]: val }));
 
-  // Reset pip size to auto default when resolution changes
   useEffect(() => {
     setSettings((s) => ({ ...s, pipSize: AUTO_PIP[s.resolution] }));
   }, [settings.resolution]);
@@ -95,6 +129,9 @@ export default function App() {
     setStatus("idle");
     setFrameLoading(true);
 
+    const detectedType = getFileType(filePath);
+    setFileType(detectedType);
+
     let info = { path: filePath, name: filePath.split(/[/\\]/).pop(), width: "?", height: "?" };
 
     if (isElectron) {
@@ -105,12 +142,12 @@ export default function App() {
       if (probe) {
         info.width  = probe.width;
         info.height = probe.height;
-        setFileDuration(probe.duration || null);
+        if (detectedType === "video") setFileDuration(probe.duration || null);
       }
       setFrameSrc(frame);
     } else {
       setFrameSrc(makeDemoFrame());
-      setFileDuration(60);
+      if (detectedType === "video") setFileDuration(60);
     }
 
     setFile(info);
@@ -135,16 +172,13 @@ export default function App() {
   }
 
   function handleScrub(seekSeconds) {
-    if (!file) return;
+    if (!file || fileType === "image") return;
     clearTimeout(scrubTimerRef.current);
     scrubTimerRef.current = setTimeout(async () => {
       setFrameLoading(true);
-      let frame = null;
-      if (isElectron) {
-        frame = await window.api.scrubFrame(file.path, seekSeconds);
-      } else {
-        frame = makeDemoFrame(); // browser demo
-      }
+      const frame = isElectron
+        ? await window.api.scrubFrame(file.path, seekSeconds)
+        : makeDemoFrame();
       if (frame) setFrameSrc(frame);
       setFrameLoading(false);
     }, 250);
@@ -158,14 +192,12 @@ export default function App() {
 
   async function handleBrowseOutput() {
     if (!isElectron) return;
-    const p = await window.api.browseOutputDir(outputPath);
+    const p = await window.api.browseOutputDir(outputPath, fileType);
     if (p) setOutputPath(p);
   }
 
   async function handleConvert() {
     if (!file || status === "converting") return;
-
-    // Overwrite warning
     if (isElectron) {
       const ok = await window.api.confirmOverwrite(outputPath);
       if (!ok) return;
@@ -177,19 +209,27 @@ export default function App() {
     setErrorText("");
     setDoneOutput("");
 
-    const crf = CRF_PRESETS.find((p) => p.value === settings.quality)?.crf ?? 18;
+    const preset    = CRF_PRESETS.find((p) => p.value === settings.quality);
+    const isManual  = settings.quality === "manual";
 
     if (isElectron) {
       await window.api.startConversion({
-        inputPath:   file.path,
+        inputPath:         file.path,
         outputPath,
-        resolution:  settings.resolution,
-        sweetSpot:   settings.sweetSpot,
-        pipSize:     settings.pipSize,
-        pipMargin:   settings.pipMargin,
-        pipPosition: settings.pipPosition,
-        audio:       settings.audio,
-        crf,
+        resolution:        settings.resolution,
+        sweetSpot:         settings.sweetSpot,
+        pipSize:           settings.pipSize,
+        pipMargin:         settings.pipMargin,
+        pipPosition:       settings.pipPosition,
+        audio:             settings.audio,
+        crf:               isManual ? null : (preset?.crf ?? 18),
+        scale:             settings.scale / 100,
+        hPan:              settings.hPan,
+        pipEnabled:        settings.pipEnabled,
+        bitrateKbps:       isManual ? settings.bitrateKbps : null,
+        burninTitle:       settings.burninEnabled ? settings.burninTitle : "",
+        burninFilename:    settings.burninEnabled && settings.burninFilename,
+        burninFramenumber: settings.burninEnabled && settings.burninFramenumber,
       });
     } else {
       let p = 0;
@@ -210,7 +250,9 @@ export default function App() {
     setProgress(0);
   }
 
-  const revealLabel = platform === "darwin" ? "Show in Finder" : platform === "win32" ? "Show in Explorer" : "Show in Folder";
+  const revealLabel = platform === "darwin" ? "Show in Finder"
+                    : platform === "win32"   ? "Show in Explorer"
+                    : "Show in Folder";
 
   return (
     <div className={styles.shell}>
@@ -222,7 +264,15 @@ export default function App() {
       </header>
 
       <main className={styles.main}>
-        <DropZone
+
+        {/* Unified drop zone + live preview */}
+        <Preview
+          frameSrc={frameSrc}
+          isLoading={frameLoading}
+          settings={settings}
+          duration={fileDuration}
+          onScrub={handleScrub}
+          fileType={fileType}
           file={file}
           onDrop={handleFileDrop}
           onBrowse={handleBrowse}
@@ -230,107 +280,226 @@ export default function App() {
           isElectron={isElectron}
         />
 
-        <Preview
-          frameSrc={frameSrc}
-          isLoading={frameLoading}
-          settings={settings}
-          duration={fileDuration}
-          onScrub={handleScrub}
-        />
-
-        <div className={styles.grid}>
-          {/* Left column */}
-          <div className={styles.col}>
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>Output Resolution</label>
-              <ToggleGroup
-                options={[{ value: "4k", label: "4K  (3840×2160)" }, { value: "1080p", label: "1080p  (1920×1080)" }]}
-                value={settings.resolution}
-                onChange={set("resolution")}
-              />
-            </section>
-
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>
-                Crop Position (Sweet Spot)
-                <span className={styles.numBadge}>{settings.sweetSpot}%</span>
-              </label>
-              <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} />
-              <p className={styles.hint}>0% = top of dome · 50% = midpoint · 100% = bottom</p>
-            </section>
-
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>Audio</label>
-              <ToggleGroup
-                options={[
-                  { value: "stereo",      label: "Downmix to stereo" },
-                  { value: "passthrough", label: "Passthrough" },
-                ]}
-                value={settings.audio}
-                onChange={set("audio")}
-              />
-            </section>
-
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>Quality</label>
-              <ToggleGroup
-                options={CRF_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
-                value={settings.quality}
-                onChange={set("quality")}
-              />
-              <p className={styles.hint}>
-                Draft = faster/smaller · Standard = balanced · High = near-lossless
-              </p>
-            </section>
+        {/* Tabbed settings panel */}
+        <div className={styles.tabPanel}>
+          <div className={styles.tabBar} role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={activeTab === t.id}
+                className={[styles.tabBtn, activeTab === t.id ? styles.tabBtnActive : ""].join(" ")}
+                onClick={() => setActiveTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
-          {/* Right column */}
-          <div className={styles.col}>
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>PiP Position</label>
-              <PipPositionPicker value={settings.pipPosition} onChange={set("pipPosition")} />
-            </section>
+          <div className={styles.tabContent}>
 
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>
-                PiP Size
-                <span className={styles.numBadge}>{settings.pipSize}px</span>
-              </label>
-              <Slider min={120} max={PIP_MAX[settings.resolution]} value={settings.pipSize} onChange={set("pipSize")} />
-              <p className={styles.hint}>Default: {AUTO_PIP[settings.resolution]}px</p>
-            </section>
+            {activeTab === "framing" && (
+              <div className={styles.tabGrid}>
+                <div className={styles.tabCol}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Output Resolution</label>
+                    <ToggleGroup
+                      options={[{ value: "4k", label: "4K (3840×2160)" }, { value: "1080p", label: "1080p (1920×1080)" }]}
+                      value={settings.resolution}
+                      onChange={set("resolution")}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>
+                      Vertical Position
+                      <span className={styles.numBadge}>{settings.sweetSpot}%</span>
+                    </label>
+                    <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} />
+                    <p className={styles.hint}>0% = top of dome · 100% = bottom</p>
+                  </div>
+                </div>
+                <div className={styles.tabCol}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>
+                      Scale
+                      <span className={styles.numBadge}>{settings.scale}%</span>
+                    </label>
+                    <Slider min={100} max={400} value={settings.scale} onChange={set("scale")} />
+                    <p className={styles.hint}>Zoom in to fill black corners</p>
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>
+                      Horizontal Position
+                      <span className={styles.numBadge}>{settings.hPan}%</span>
+                    </label>
+                    <Slider min={0} max={100} value={settings.hPan} onChange={set("hPan")} />
+                    <p className={styles.hint}>0% = left · 50% = center · 100% = right</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
-            <section className={styles.card}>
-              <label className={styles.cardLabel}>
-                PiP Image Padding
-                <span className={styles.numBadge}>{settings.pipMargin}px</span>
-              </label>
-              <Slider min={0} max={300} value={settings.pipMargin} onChange={set("pipMargin")} />
-            </section>
+            {activeTab === "pip" && (
+              <>
+                <div className={styles.pipToggleRow}>
+                  <span className={styles.pipToggleLabel}>Picture-in-Picture overlay</span>
+                  <button
+                    className={settings.pipEnabled ? styles.toggleOn : styles.toggleOff}
+                    onClick={() => set("pipEnabled")(!settings.pipEnabled)}
+                    aria-pressed={settings.pipEnabled}
+                  >
+                    {settings.pipEnabled ? "On" : "Off"}
+                  </button>
+                </div>
+
+                {settings.pipEnabled && (
+                  <div className={styles.tabGrid}>
+                    <div className={styles.tabCol}>
+                      <div className={styles.field}>
+                        <label className={styles.fieldLabel}>Position</label>
+                        <PipPositionPicker value={settings.pipPosition} onChange={set("pipPosition")} />
+                      </div>
+                    </div>
+                    <div className={styles.tabCol}>
+                      <div className={styles.field}>
+                        <label className={styles.fieldLabel}>
+                          Size
+                          <span className={styles.numBadge}>{settings.pipSize}px</span>
+                        </label>
+                        <Slider min={120} max={PIP_MAX[settings.resolution]} value={settings.pipSize} onChange={set("pipSize")} />
+                        <p className={styles.hint}>Default: {AUTO_PIP[settings.resolution]}px</p>
+                      </div>
+                      <div className={styles.field}>
+                        <label className={styles.fieldLabel}>
+                          Padding
+                          <span className={styles.numBadge}>{settings.pipMargin}px</span>
+                        </label>
+                        <Slider min={0} max={300} value={settings.pipMargin} onChange={set("pipMargin")} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === "export" && (
+              <>
+              <div className={styles.tabGrid}>
+                <div className={styles.tabCol}>
+                  {fileType === "video" && (
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel}>Audio</label>
+                      <ToggleGroup
+                        options={[
+                          { value: "stereo",      label: "Downmix to stereo" },
+                          { value: "passthrough", label: "Passthrough" },
+                        ]}
+                        value={settings.audio}
+                        onChange={set("audio")}
+                      />
+                    </div>
+                  )}
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Quality</label>
+                    <ToggleGroup
+                      options={CRF_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+                      value={settings.quality}
+                      onChange={set("quality")}
+                    />
+                    {settings.quality !== "manual"
+                      ? <p className={styles.hint}>Draft = faster · Standard = balanced · High = near-lossless</p>
+                      : (
+                        <div className={styles.bitrateRow}>
+                          <label className={styles.bitrateLabel}>Bitrate (kbps)</label>
+                          <input
+                            type="number"
+                            className={styles.bitrateInput}
+                            min={500} max={200000} step={500}
+                            value={settings.bitrateKbps}
+                            onChange={(e) => set("bitrateKbps")(Number(e.target.value))}
+                          />
+                        </div>
+                      )
+                    }
+                  </div>
+                  {fileType === "image" && (
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel}>Output Format</label>
+                      <ToggleGroup
+                        options={[
+                          { value: "jpg", label: "JPEG" },
+                          { value: "png", label: "PNG" },
+                          { value: "tif", label: "TIFF" },
+                        ]}
+                        value={settings.outputImageFormat}
+                        onChange={set("outputImageFormat")}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className={styles.tabCol}>
+                  <div className={styles.field}>
+                    <div className={styles.burnInHeader}>
+                      <label className={styles.fieldLabel} style={{ margin: 0 }}>Burn-in Overlays</label>
+                      <button
+                        className={settings.burninEnabled ? styles.toggleOn : styles.toggleOff}
+                        onClick={() => set("burninEnabled")(!settings.burninEnabled)}
+                        aria-pressed={settings.burninEnabled}
+                      >
+                        {settings.burninEnabled ? "On" : "Off"}
+                      </button>
+                    </div>
+                    {settings.burninEnabled && (
+                      <div className={styles.burnInFields}>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Title text (top center)</label>
+                          <input
+                            type="text"
+                            className={styles.burnInInput}
+                            placeholder="e.g. My Dome Film"
+                            value={settings.burninTitle}
+                            onChange={(e) => set("burninTitle")(e.target.value)}
+                          />
+                        </div>
+                        <label className={styles.burnInCheck}>
+                          <input type="checkbox" checked={settings.burninFilename}
+                            onChange={(e) => set("burninFilename")(e.target.checked)} />
+                          Filename (bottom left)
+                        </label>
+                        <label className={styles.burnInCheck}>
+                          <input type="checkbox" checked={settings.burninFramenumber}
+                            onChange={(e) => set("burninFramenumber")(e.target.checked)} />
+                          Frame number (bottom right)
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Output path — full width below the grid */}
+              <div className={styles.field} style={{ marginTop: 14 }}>
+                <label className={styles.fieldLabel}>Output Path</label>
+                <div className={styles.outputRow}>
+                  <span className={styles.outputPathText} title={outputPath}>
+                    {outputPath || (file ? "…" : "Load a file first")}
+                  </span>
+                  {file && status !== "converting" && (
+                    <button className={styles.btnGhost} onClick={handleBrowseOutput}>Change…</button>
+                  )}
+                </div>
+              </div>
+
+              </>
+            )}
+
           </div>
         </div>
 
-        {/* Output path */}
-        <section className={styles.card}>
-          <label className={styles.cardLabel}>Output Path</label>
-          <div className={styles.outputRow}>
-            <span className={styles.outputPathText} title={outputPath}>
-              {outputPath || (file ? "…" : "Load a file first")}
-            </span>
-            {file && status !== "converting" && (
-              <button className={styles.btnGhost} onClick={handleBrowseOutput}>Change…</button>
-            )}
-          </div>
-        </section>
-
-        {/* Convert button */}
+        {/* Convert / Cancel */}
         <div className={styles.actions}>
           {status !== "converting" ? (
-            <button
-              className={styles.btnConvert}
-              disabled={!file}
-              onClick={handleConvert}
-            >
+            <button className={styles.btnConvert} disabled={!file} onClick={handleConvert}>
               Convert
             </button>
           ) : (
@@ -338,31 +507,22 @@ export default function App() {
           )}
         </div>
 
-        {/* Progress */}
         {(status === "converting" || status === "done") && (
           <ProgressBar pct={progress} startTime={startTime} done={status === "done"} />
         )}
 
-        {/* Success */}
         {status === "done" && (
           <div className={styles.resultSuccess}>
             <span className={styles.successIcon}>✓</span>
             <span className={styles.resultPath}>{doneOutput}</span>
             <div className={styles.resultActions}>
-              <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFile(doneOutput)}>
-                Open File
-              </button>
-              <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFolder(doneOutput)}>
-                {revealLabel}
-              </button>
-              <button className={styles.btnGhost} onClick={() => setStatus("idle")}>
-                Convert Another
-              </button>
+              <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFile(doneOutput)}>Open File</button>
+              <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFolder(doneOutput)}>{revealLabel}</button>
+              <button className={styles.btnGhost} onClick={() => setStatus("idle")}>Convert Another</button>
             </div>
           </div>
         )}
 
-        {/* Error */}
         {status === "error" && (
           <div className={styles.resultError}>
             <div className={styles.errorHeader}>
@@ -372,6 +532,7 @@ export default function App() {
             <pre className={styles.errorLog}>{errorText}</pre>
           </div>
         )}
+
       </main>
     </div>
   );

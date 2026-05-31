@@ -1,6 +1,6 @@
 {
   "name": "fulldome-preview-converter",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-alpha.1",
   "description": "Fulldome fisheye to 16:9 preview converter for Dome Fest West",
   "main": "main.js",
   "scripts": {

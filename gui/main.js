@@ -47,6 +47,9 @@ function findConvertScript() {
   return path.join(__dirname, "..", "convert.py");
 }
 
+// Extensions readable directly by Electron/Chromium without FFmpeg
+const BROWSER_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".bmp", ".webp"]);
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -73,6 +76,11 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist", "index.html"));
   }
+
+  // Prevent Electron from navigating to dropped files
+  mainWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
 }
 
 app.whenReady().then(() => {
@@ -92,19 +100,44 @@ app.on("window-all-closed", () => {
 
 ipcMain.handle("browse-file", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Select fulldome .mp4",
-    filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
+    title: "Select fulldome file",
+    filters: [
+      {
+        name: "Fulldome Files",
+        extensions: [
+          "mp4","mov","m4v","avi","mkv","mxf","mts","m2ts","webm","flv","wmv","3gp","mpg","mpeg","ts","dv",
+          "jpg","jpeg","png","tif","tiff","exr","dpx","tga","bmp","webp","psd",
+        ],
+      },
+      {
+        name: "Video Files",
+        extensions: ["mp4","mov","m4v","avi","mkv","mxf","mts","m2ts","webm","flv","wmv","3gp","mpg","mpeg","ts","dv"],
+      },
+      {
+        name: "Image Files",
+        extensions: ["jpg","jpeg","png","tif","tiff","exr","dpx","tga","bmp","webp","psd"],
+      },
+    ],
     properties: ["openFile"],
   });
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];
 });
 
-ipcMain.handle("browse-output-dir", async (_evt, defaultPath) => {
+ipcMain.handle("browse-output-dir", async (_evt, defaultPath, fileType) => {
+  const isImage = fileType === "image";
+  const filters = isImage
+    ? [
+        { name: "JPEG Image", extensions: ["jpg"] },
+        { name: "PNG Image",  extensions: ["png"] },
+        { name: "TIFF Image", extensions: ["tif"] },
+      ]
+    : [{ name: "MP4 Video", extensions: ["mp4"] }];
+
   const result = await dialog.showSaveDialog(mainWindow, {
     title: "Save preview as…",
     defaultPath,
-    filters: [{ name: "MP4 Video", extensions: ["mp4"] }],
+    filters,
   });
   if (result.canceled) return null;
   return result.filePath;
@@ -145,6 +178,21 @@ ipcMain.handle("open-folder", async (_evt, filePath) => {
   shell.showItemInFolder(filePath);
 });
 
+// Read an image file and return base64 data URL, or null on error
+function readImageAsDataURL(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = ext === ".png" ? "image/png"
+               : ext === ".bmp" ? "image/bmp"
+               : ext === ".webp" ? "image/webp"
+               : "image/jpeg";
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 // Extract a single frame at a given time offset (seconds). Falls back to 0s if seek fails.
 async function extractFrameAt(filePath, seekSeconds) {
   const ffmpeg = findBinary("ffmpeg");
@@ -175,7 +223,15 @@ async function extractFrameAt(filePath, seekSeconds) {
 }
 
 ipcMain.handle("extract-frame", async (_evt, filePath) => {
-  // Try 5s first; if the file is shorter, fall back to 0s
+  const ext = path.extname(filePath).toLowerCase();
+
+  // For browser-renderable images, read the file directly (no FFmpeg needed)
+  if (BROWSER_IMAGE_EXTS.has(ext)) {
+    return readImageAsDataURL(filePath);
+  }
+
+  // For other image formats (EXR, DPX, TIFF, TGA, PSD) or video, use FFmpeg
+  // Video: try 5s first, fall back to 0s for short clips
   let result = await extractFrameAt(filePath, 5);
   if (!result) result = await extractFrameAt(filePath, 0);
   return result;
@@ -215,6 +271,13 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     pipPosition,
     audio,
     crf,
+    scale,
+    hPan,
+    pipEnabled,
+    bitrateKbps,
+    burninTitle,
+    burninFilename,
+    burninFramenumber,
   } = opts;
 
   const python = findPython();
@@ -222,16 +285,33 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
 
   const args = [
     script,
-    "--input", inputPath,
-    "--output", outputPath,
-    "--resolution", resolution,
-    "--sweet-spot", String(sweetSpot),
-    "--pip-size", String(pipSize),
-    "--pip-margin", String(pipMargin),
+    "--input",        inputPath,
+    "--output",       outputPath,
+    "--resolution",   resolution,
+    "--sweet-spot",   String(sweetSpot),
+    "--pip-size",     String(pipSize),
+    "--pip-margin",   String(pipMargin),
     "--pip-position", pipPosition,
-    "--audio", audio,
-    "--crf", String(crf ?? 18),
+    "--scale",        String(scale ?? 1.0),
+    "--h-pan",        String(hPan ?? 50),
   ];
+
+  if (pipEnabled === false) args.push("--no-pip");
+
+  // Quality: either CRF or manual bitrate
+  if (bitrateKbps) {
+    args.push("--bitrate", String(bitrateKbps));
+  } else {
+    args.push("--crf", String(crf ?? 18));
+  }
+
+  // Audio (not applicable for image inputs, but harmless to pass — convert.py ignores it)
+  if (audio) args.push("--audio", audio);
+
+  // Burn-in overlays
+  if (burninTitle) args.push("--burnin-title", burninTitle);
+  if (burninFilename) args.push("--burnin-filename");
+  if (burninFramenumber) args.push("--burnin-framenumber");
 
   const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;
@@ -239,7 +319,6 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
   let errorBuf = "";
 
   proc.stdout.on("data", (chunk) => {
-    // Recreate match each chunk to avoid lastIndex drift on /g regex
     const text = chunk.toString();
     const matches = text.match(/Progress:\s*(\d+)%/g) || [];
     for (const m of matches) {
