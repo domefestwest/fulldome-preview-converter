@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "build": "vite build",
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev": "concurrently \"vite --port 5274\" \"wait-on http://localhost:5274 && electron .\"",
     "make": "electron-builder"
   },
   "keywords": ["fulldome", "ffmpeg", "video", "converter"],
