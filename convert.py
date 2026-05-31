@@ -203,7 +203,10 @@ def build_filtergraph(
                 cur = label
             return ";".join(parts), "vout"
         else:
-            return bg_filter, None
+            return (
+                f"[0:v]scale={scale_dim}:{scale_dim},"
+                f"crop={out_width}:{out_height}:{crop_x}:{crop_y}"
+            ), None
 
 
 def _esc(text: str) -> str:
