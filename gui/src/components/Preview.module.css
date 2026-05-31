@@ -218,3 +218,80 @@
   background: var(--gold);
   border: 2px solid #1a1a1a;
 }
+
+/* ---- Trim controls ---- */
+.trimSection {
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trimRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trimLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.trimSlider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--orange) 0%,
+    var(--orange) var(--pct),
+    var(--surface2) var(--pct),
+    var(--surface2) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.trimSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--orange);
+  border: 2px solid #1a1a1a;
+}
+
+.trimSlider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--orange);
+  border: 2px solid #1a1a1a;
+}
+
+.trimTime {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.trimDuration {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  opacity: 0.7;
+  margin-top: 2px;
+}

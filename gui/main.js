@@ -279,6 +279,16 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     burninFilename,
     burninFramenumber,
     burninCorner,
+    cropMode,
+    trimStart,
+    trimEnd,
+    slateTitle,
+    slateCreator,
+    slateYear,
+    watermarkPath,
+    watermarkCorner,
+    watermarkOpacity,
+    watermarkSize,
   } = opts;
 
   const python = findPython();
@@ -314,6 +324,26 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
   if (burninFilename) args.push("--burnin-filename");
   if (burninFramenumber) args.push("--burnin-framenumber");
   if (burninCorner) args.push("--burnin-corner", burninCorner);
+
+  // Crop mode
+  if (cropMode) args.push("--crop-mode", cropMode);
+
+  // Trim
+  if (trimStart && trimStart > 0) args.push("--trim-start", String(trimStart));
+  if (trimEnd != null) args.push("--trim-end", String(trimEnd));
+
+  // Slate
+  if (slateTitle) args.push("--slate-title", slateTitle);
+  if (slateCreator) args.push("--slate-creator", slateCreator);
+  if (slateYear) args.push("--slate-year", slateYear);
+
+  // Watermark
+  if (watermarkPath) {
+    args.push("--watermark", watermarkPath);
+    args.push("--watermark-corner", watermarkCorner || "br");
+    args.push("--watermark-opacity", String(watermarkOpacity ?? 80));
+    args.push("--watermark-size", String(watermarkSize ?? 15));
+  }
 
   const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;
@@ -362,4 +392,34 @@ ipcMain.handle("cancel-conversion", () => {
     activeConversion.kill("SIGTERM");
     activeConversion = null;
   }
+});
+
+ipcMain.handle("browse-watermark", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select watermark image",
+    filters: [
+      { name: "Image Files", extensions: ["png", "jpg", "jpeg", "svg", "bmp", "webp"] },
+    ],
+    properties: ["openFile"],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("browse-files", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select fulldome files",
+    filters: [
+      {
+        name: "Fulldome Files",
+        extensions: [
+          "mp4","mov","m4v","avi","mkv","mxf","mts","m2ts","webm","flv","wmv","3gp","mpg","mpeg","ts","dv",
+          "jpg","jpeg","png","tif","tiff","exr","dpx","tga","bmp","webp","psd",
+        ],
+      },
+    ],
+    properties: ["openFile", "multiSelections"],
+  });
+  if (result.canceled || !result.filePaths.length) return [];
+  return result.filePaths;
 });

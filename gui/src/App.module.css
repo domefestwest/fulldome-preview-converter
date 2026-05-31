@@ -358,3 +358,203 @@
   height: 13px;
   cursor: pointer;
 }
+
+/* ---- Crop mode row ---- */
+.cropModeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cropModeLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dimsBadge {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.slateNote {
+  color: var(--orange);
+  font-size: 10px;
+}
+
+/* ---- Presets row ---- */
+.presetsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.presetSelect {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+  cursor: pointer;
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+}
+.presetSelect:focus { border-color: var(--orange); }
+
+/* ---- Watermark file row ---- */
+.watermarkFileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.watermarkPath {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+/* ---- Filename preview ---- */
+.filenamePreview {
+  font-size: 11px;
+  color: var(--gold);
+  opacity: 0.85;
+  font-style: italic;
+  word-break: break-all;
+}
+
+/* ---- Batch mode ---- */
+.batchToggleRow {
+  display: flex;
+  align-items: center;
+}
+
+.batchPanel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batchHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.batchTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.batchHeaderActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.batchEmpty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.batchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.batchFileName {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.batchChip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chip_pending   { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+.chip_converting { background: color-mix(in srgb, var(--orange) 15%, var(--surface)); color: var(--orange); border: 1px solid var(--orange); }
+.chip_done      { background: color-mix(in srgb, var(--success) 15%, var(--surface)); color: var(--success); border: 1px solid var(--success); }
+.chip_error     { background: color-mix(in srgb, var(--error) 15%, var(--surface)); color: var(--error); border: 1px solid var(--error); }
+
+.batchProgress {
+  flex: 1;
+  height: 4px;
+  background: var(--surface);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 100px;
+}
+
+.batchProgressBar {
+  height: 100%;
+  background: var(--orange);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.batchRemove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.batchRemove:hover { color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
+
+.btnConvertSmall {
+  background: var(--orange);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btnConvertSmall:hover:not(:disabled) { background: var(--gold); color: #1a1a1a; }
+.btnConvertSmall:disabled { opacity: 0.35; cursor: not-allowed; }

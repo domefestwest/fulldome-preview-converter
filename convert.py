@@ -19,9 +19,10 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-RESOLUTIONS = {
-    "4k":    {"width": 3840, "height": 2160, "pip_size": 480},
-    "1080p": {"width": 1920, "height": 1080, "pip_size": 270},
+# Base pip sizes keyed by shorter dimension
+PIP_SIZES = {
+    2160: 480,
+    1080: 270,
 }
 
 SUPPORTED_IMAGE_EXTS = {
@@ -49,6 +50,7 @@ DEFAULT_PIP_MARGIN  = 40
 DEFAULT_AUDIO       = "stereo"
 DEFAULT_RESOLUTION  = "4k"
 DEFAULT_PIP_POS     = "br"
+DEFAULT_CROP_MODE   = "16:9"
 
 PIP_POSITIONS = {
     "br": ("W-w-{m}", "H-h-{m}"),
@@ -56,6 +58,33 @@ PIP_POSITIONS = {
     "tr": ("W-w-{m}", "{m}"),
     "tl": ("{m}",      "{m}"),
 }
+
+WM_POSITIONS = {
+    "br": ("W-w-{m}", "H-h-{m}"),
+    "bl": ("{m}",     "H-h-{m}"),
+    "tr": ("W-w-{m}", "{m}"),
+    "tl": ("{m}",      "{m}"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Output dimension helper
+# ---------------------------------------------------------------------------
+
+def get_output_dims(resolution: str, crop_mode: str) -> tuple[int, int]:
+    """Return (width, height) for the given resolution and crop mode."""
+    base = 2160 if resolution == "4k" else 1080
+    if crop_mode == "16:9":
+        return (base * 16 // 9, base)
+    elif crop_mode == "9:16":
+        return (base, base * 16 // 9)
+    else:  # 1:1
+        return (base, base)
+
+
+def get_pip_size(resolution: str) -> int:
+    base = 2160 if resolution == "4k" else 1080
+    return PIP_SIZES.get(base, 270)
 
 
 # ---------------------------------------------------------------------------
@@ -124,23 +153,33 @@ def build_filtergraph(
     burnin_framenumber: bool = False,
     burnin_corner: str = "bl",
     fps: str = "30/1",
+    slate_title: str | None = None,
+    slate_creator: str | None = None,
+    slate_year: str | None = None,
+    watermark_path: str | None = None,
+    watermark_corner: str = "br",
+    watermark_opacity: int = 80,
+    watermark_size: int = 15,
+    watermark_input_index: int = 1,
 ) -> tuple[str, str | None]:
     """
     Build the FFmpeg -filter_complex string.
     Returns (filtergraph_string, output_label_or_None).
     If output_label is not None, caller must pass -map [output_label] to FFmpeg.
     """
-    # Scaled square side — applies user scale factor
-    scale_dim = round(out_width * scale)
+    # For 9:16 and 1:1 crop modes out_width may equal or be less than out_height.
+    # The fisheye source is square; scale_dim is based on the LARGER of out_w/out_h
+    # so we always have enough source pixels to fill the output frame.
+    base_dim = max(out_width, out_height)
+    scale_dim = round(base_dim * scale)
 
     # Crop offsets: sweet spot controls Y (0%=top of dome, 100%=bottom)
     max_y = scale_dim - out_height
     max_x = scale_dim - out_width
-    crop_y = round(max_y * (1 - sweet_spot / 100))
+    crop_y = round(max_y * (1 - sweet_spot / 100)) if max_y > 0 else 0
     crop_x = round(max_x * (h_pan / 100)) if max_x > 0 else 0
 
     # PiP: circular alpha mask via geq
-    # \, escapes commas inside geq expressions (FFmpeg filter syntax)
     hs = pip_size / 2
     pip_filter = (
         f"[0:v]scale={pip_size}:{pip_size},"
@@ -158,7 +197,7 @@ def build_filtergraph(
         f"crop={out_width}:{out_height}:{crop_x}:{crop_y}[bg]"
     )
 
-    # Build burn-in items (all stack in the chosen bottom corner)
+    # Build burn-in items
     burnin_items = []
     if burnin_title:       burnin_items.append(("text", _esc(burnin_title)))
     if burnin_filename:    burnin_items.append(("text", _esc(burnin_filename)))
@@ -169,7 +208,6 @@ def build_filtergraph(
 
     drawtext_filters = []
     for i, (kind, val) in enumerate(burnin_items):
-        # Stack from bottom: last item closest to edge, first item highest
         y_offset = 20 + (len(burnin_items) - 1 - i) * (fontsize + 14)
         y_expr = f"h-text_h-{y_offset}"
         text_expr = f"'Frame\\: %{{n}}'" if kind == "framenumber" else f"'{val}'"
@@ -179,34 +217,104 @@ def build_filtergraph(
             f"x={x_expr}:y={y_expr}"
         )
 
+    # Build main video chain
     if pip_enabled:
         parts = [bg_filter, pip_filter]
         if drawtext_filters:
             parts.append(f"[bg][pip]overlay={ox}:{oy}:format=auto[base]")
             cur = "base"
             for i, dt in enumerate(drawtext_filters):
-                label = "vout" if i == len(drawtext_filters) - 1 else f"dt{i}"
+                label = f"dt{i}"
                 parts.append(f"[{cur}]{dt}[{label}]")
                 cur = label
-            return ";".join(parts), "vout"
         else:
-            parts.append(f"[bg][pip]overlay={ox}:{oy}:format=auto")
-            return ";".join(parts), None
+            parts.append(f"[bg][pip]overlay={ox}:{oy}:format=auto[base]")
+            cur = "base"
     else:
-        # No PiP — just crop + optional burn-in
+        # No PiP
         if drawtext_filters:
             parts = [bg_filter]
             cur = "bg"
             for i, dt in enumerate(drawtext_filters):
-                label = "vout" if i == len(drawtext_filters) - 1 else f"dt{i}"
+                label = f"dt{i}"
                 parts.append(f"[{cur}]{dt}[{label}]")
                 cur = label
-            return ";".join(parts), "vout"
         else:
-            return (
+            # Simple path — no labels needed unless we have slate/watermark downstream
+            parts = [
                 f"[0:v]scale={scale_dim}:{scale_dim},"
-                f"crop={out_width}:{out_height}:{crop_x}:{crop_y}"
-            ), None
+                f"crop={out_width}:{out_height}:{crop_x}:{crop_y}[base]"
+            ]
+            cur = "base"
+
+    # Slate bar
+    has_slate = any([slate_title, slate_creator, slate_year])
+    if has_slate:
+        bar_h = round(out_height * 0.10)
+        # pad video to add black bar at bottom
+        parts.append(f"[{cur}]pad={out_width}:{out_height + bar_h}:0:0:black[slated]")
+        cur = "slated"
+        # Title centered
+        if slate_title:
+            parts.append(
+                f"[{cur}]drawtext=text='{_esc(slate_title)}':font='Arial':"
+                f"fontsize=36:fontcolor=white:borderw=2:bordercolor=black@0.6:"
+                f"x=(w-text_w)/2:y={out_height}+({bar_h}-text_h)/2[slate0]"
+            )
+            cur = "slate0"
+        # Creator bottom-left of bar
+        if slate_creator:
+            parts.append(
+                f"[{cur}]drawtext=text='{_esc(slate_creator)}':font='Arial':"
+                f"fontsize=24:fontcolor=rgba(255,255,255,0.7):borderw=1:bordercolor=black@0.5:"
+                f"x=20:y={out_height}+{bar_h}-text_h-10[slate1]"
+            )
+            cur = "slate1"
+        # Year bottom-right of bar
+        if slate_year:
+            parts.append(
+                f"[{cur}]drawtext=text='{_esc(slate_year)}':font='Arial':"
+                f"fontsize=24:fontcolor=rgba(255,255,255,0.7):borderw=1:bordercolor=black@0.5:"
+                f"x=w-text_w-20:y={out_height}+{bar_h}-text_h-10[slate2]"
+            )
+            cur = "slate2"
+
+    # Watermark overlay
+    if watermark_path:
+        wm_idx = watermark_input_index
+        margin = 20
+        ox_wm, oy_wm = WM_POSITIONS[watermark_corner]
+        ox_wm = ox_wm.format(m=margin)
+        oy_wm = oy_wm.format(m=margin)
+        opacity_f = watermark_opacity / 100.0
+        parts.append(
+            f"[{wm_idx}:v]scale=round(iw*{watermark_size}/100):-1:flags=lanczos,"
+            f"format=rgba,colorchannelmixer=aa={opacity_f:.3f}[wm]"
+        )
+        parts.append(f"[{cur}][wm]overlay={ox_wm}:{oy_wm}:format=auto[wmout]")
+        cur = "wmout"
+
+    # Determine final label
+    # If cur is still "base" and it came from the simple no-pip/no-burnin path,
+    # we need to check: the simple path already set a [base] label.
+    # If nothing changed cur from "base", we have [base] already labelled.
+    # But the very simple path (no pip, no burnin, no slate, no watermark) should
+    # return None label for backwards compat. Check that:
+    has_label = not (
+        not pip_enabled
+        and not drawtext_filters
+        and not has_slate
+        and not watermark_path
+    )
+
+    if not has_label:
+        # rewrite the simple path to NOT use labels
+        return (
+            f"[0:v]scale={scale_dim}:{scale_dim},"
+            f"crop={out_width}:{out_height}:{crop_x}:{crop_y}"
+        ), None
+
+    return ";".join(parts), cur
 
 
 def _esc(text: str) -> str:
@@ -243,10 +351,18 @@ def run_conversion(
     burnin_framenumber: bool = False,
     burnin_corner: str = "bl",
     verbose: bool = False,
+    crop_mode: str = "16:9",
+    trim_start: float = 0.0,
+    trim_end: float | None = None,
+    slate_title: str | None = None,
+    slate_creator: str | None = None,
+    slate_year: str | None = None,
+    watermark_path: str | None = None,
+    watermark_corner: str = "br",
+    watermark_opacity: int = 80,
+    watermark_size: int = 15,
 ) -> int:
-    res    = RESOLUTIONS[resolution]
-    out_w  = res["width"]
-    out_h  = res["height"]
+    out_w, out_h = get_output_dims(resolution, crop_mode)
 
     input_is_image  = is_image(input_path)
     output_ext      = Path(output_path).suffix.lower()
@@ -254,24 +370,44 @@ def run_conversion(
 
     fps = "30/1" if input_is_image else probe_fps(input_path)
 
+    # Determine watermark input index (1 if watermark present, else unused)
+    watermark_input_index = 1 if watermark_path else 0
+
     filtergraph, out_label = build_filtergraph(
-        out_width          = out_w,
-        out_height         = out_h,
-        sweet_spot         = sweet_spot,
-        pip_size           = pip_size,
-        pip_margin         = pip_margin,
-        pip_pos            = pip_pos,
-        scale              = scale,
-        h_pan              = h_pan,
-        pip_enabled        = pip_enabled,
-        burnin_title       = burnin_title,
-        burnin_filename    = burnin_filename,
-        burnin_framenumber = burnin_framenumber,
-        burnin_corner      = burnin_corner,
-        fps                = fps,
+        out_width              = out_w,
+        out_height             = out_h,
+        sweet_spot             = sweet_spot,
+        pip_size               = pip_size,
+        pip_margin             = pip_margin,
+        pip_pos                = pip_pos,
+        scale                  = scale,
+        h_pan                  = h_pan,
+        pip_enabled            = pip_enabled,
+        burnin_title           = burnin_title,
+        burnin_filename        = burnin_filename,
+        burnin_framenumber     = burnin_framenumber,
+        burnin_corner          = burnin_corner,
+        fps                    = fps,
+        slate_title            = slate_title,
+        slate_creator          = slate_creator,
+        slate_year             = slate_year,
+        watermark_path         = watermark_path,
+        watermark_corner       = watermark_corner,
+        watermark_opacity      = watermark_opacity,
+        watermark_size         = watermark_size,
+        watermark_input_index  = watermark_input_index,
     )
 
-    duration = None if input_is_image else probe_duration(input_path)
+    # Effective duration for progress tracking
+    duration = None
+    if not input_is_image:
+        raw_dur = probe_duration(input_path)
+        if raw_dur:
+            t_start = trim_start or 0.0
+            if trim_end and trim_end > t_start:
+                duration = trim_end - t_start
+            else:
+                duration = raw_dur - t_start
 
     # --- Build FFmpeg command ---
     cmd = [find_ffmpeg(), "-y"]
@@ -279,7 +415,17 @@ def run_conversion(
     if input_is_image:
         cmd += ["-loop", "1"]
 
-    cmd += ["-i", input_path, "-filter_complex", filtergraph]
+    # Trim start: seek BEFORE input for fast seeking
+    if not input_is_image and trim_start and trim_start > 0:
+        cmd += ["-ss", str(trim_start)]
+
+    cmd += ["-i", input_path]
+
+    # Watermark input
+    if watermark_path:
+        cmd += ["-i", watermark_path]
+
+    cmd += ["-filter_complex", filtergraph]
 
     if out_label:
         cmd += ["-map", f"[{out_label}]"]
@@ -288,6 +434,10 @@ def run_conversion(
         cmd += IMAGE_OUTPUT_CODECS[output_ext]
         cmd += ["-frames:v", "1"]
     else:
+        # Trim end: duration limit AFTER input
+        if not input_is_image and trim_end and trim_end > (trim_start or 0.0):
+            cmd += ["-t", str(trim_end - (trim_start or 0.0))]
+
         cmd += ["-c:v", "libx264"]
         if bitrate_kbps:
             cmd += ["-b:v", f"{bitrate_kbps}k"]
@@ -372,7 +522,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     all_exts = sorted(SUPPORTED_IMAGE_EXTS | SUPPORTED_VIDEO_EXTS)
     p = argparse.ArgumentParser(
         prog="convert.py",
-        description="Convert fulldome fisheye video or image to 16:9 preview with PiP overlay.",
+        description="Convert fulldome fisheye video or image to preview with PiP overlay.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 Supported input formats:
@@ -382,9 +532,13 @@ Supported input formats:
 Examples:
   python convert.py --input film.mp4
   python convert.py --input film.mp4 --resolution 1080p --sweet-spot 30
+  python convert.py --input film.mp4 --crop-mode 9:16
   python convert.py --input master.exr --output preview.png
   python convert.py --input film.mp4 --scale 1.3 --h-pan 60
   python convert.py --input film.mp4 --burnin-title "My Film" --burnin-framenumber
+  python convert.py --input film.mp4 --trim-start 10 --trim-end 60
+  python convert.py --input film.mp4 --slate-title "My Film" --slate-creator "Director"
+  python convert.py --input film.mp4 --watermark logo.png --watermark-corner br
 """,
     )
     p.add_argument("--input",        required=True,
@@ -393,6 +547,8 @@ Examples:
                    help="Output path (default: <input>_<resolution>_preview.<ext>)")
     p.add_argument("--resolution",   default=DEFAULT_RESOLUTION, choices=["4k", "1080p"],
                    help="Output resolution (default: 4k)")
+    p.add_argument("--crop-mode",    default=DEFAULT_CROP_MODE, choices=["16:9", "9:16", "1:1"],
+                   help="Output aspect ratio (default: 16:9)")
     p.add_argument("--sweet-spot",   type=int, default=DEFAULT_SWEET_SPOT, metavar="0-100",
                    help="Vertical crop: 0%%=top of dome, 100%%=bottom (default: 30)")
     p.add_argument("--scale",        type=float, default=1.0, metavar="1.0-2.0",
@@ -421,6 +577,24 @@ Examples:
                    help="Burn the frame number into the frame")
     p.add_argument("--burnin-corner", default="bl", choices=["bl", "br"],
                    help="Corner for all burn-in overlays: bl=bottom-left, br=bottom-right (default: bl)")
+    p.add_argument("--trim-start",   type=float, default=0.0, metavar="SECONDS",
+                   help="Start time in seconds (default: 0)")
+    p.add_argument("--trim-end",     type=float, default=None, metavar="SECONDS",
+                   help="End time in seconds (default: full duration)")
+    p.add_argument("--slate-title",  default=None, metavar="TEXT",
+                   help="Add a slate bar with this title below the video")
+    p.add_argument("--slate-creator", default=None, metavar="TEXT",
+                   help="Creator name in slate bar")
+    p.add_argument("--slate-year",   default=None, metavar="YEAR",
+                   help="Year in slate bar")
+    p.add_argument("--watermark",    default=None, metavar="PATH",
+                   help="Path to watermark PNG/SVG file")
+    p.add_argument("--watermark-corner", default="br", choices=["br", "bl", "tr", "tl"],
+                   help="Corner for watermark overlay (default: br)")
+    p.add_argument("--watermark-opacity", type=int, default=80, metavar="0-100",
+                   help="Watermark opacity 0-100 (default: 80)")
+    p.add_argument("--watermark-size", type=int, default=15, metavar="PCT",
+                   help="Watermark width as %% of output width (default: 15)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="Print FFmpeg command and raw output")
     return p.parse_args(argv)
@@ -436,13 +610,14 @@ def validate_input(path: str) -> None:
         sys.exit(f"Error: unsupported file type '{ext}'. Supported: {', '.join(supported)}")
 
 
-def default_output(input_path: str, resolution: str) -> str:
+def default_output(input_path: str, resolution: str, crop_mode: str = "16:9") -> str:
     p = Path(input_path)
+    cm_tag = crop_mode.replace(":", "x")
     if p.suffix.lower() in SUPPORTED_IMAGE_EXTS:
         out_ext = ".png"
     else:
         out_ext = ".mp4"
-    return str(p.parent / f"{p.stem}_{resolution}_preview{out_ext}")
+    return str(p.parent / f"{p.stem}_{resolution}_{cm_tag}_preview{out_ext}")
 
 
 def main(argv=None) -> int:
@@ -450,9 +625,9 @@ def main(argv=None) -> int:
 
     validate_input(args.input)
 
-    output = args.output or default_output(args.input, args.resolution)
-    res    = RESOLUTIONS[args.resolution]
-    pip_sz = args.pip_size if args.pip_size is not None else res["pip_size"]
+    output = args.output or default_output(args.input, args.resolution, args.crop_mode)
+    out_w, out_h = get_output_dims(args.resolution, args.crop_mode)
+    pip_sz = args.pip_size if args.pip_size is not None else get_pip_size(args.resolution)
 
     if not (0 <= args.sweet_spot <= 100):
         sys.exit("Error: --sweet-spot must be between 0 and 100")
@@ -469,19 +644,25 @@ def main(argv=None) -> int:
 
     print(f"Input:      {args.input}")
     print(f"Output:     {output}")
-    print(f"Resolution: {args.resolution} ({res['width']}×{res['height']})")
+    print(f"Resolution: {args.resolution} ({out_w}×{out_h})  Crop: {args.crop_mode}")
     print(f"Sweet spot: {args.sweet_spot}%  Scale: {args.scale:.2f}x  H-pan: {args.h_pan}%")
     pip_on = not args.no_pip
     print(f"PiP:        {'off' if not pip_on else f'{pip_sz}px at {args.pip_position}, margin {args.pip_margin}px'}")
     if not is_image(args.input):
         q = f"manual {args.bitrate} kbps" if args.bitrate else f"CRF {args.crf}"
         print(f"Audio:      {args.audio}  Quality: {q}")
+        if args.trim_start or args.trim_end:
+            print(f"Trim:       {args.trim_start}s → {args.trim_end or 'end'}")
     if args.burnin_title or args.burnin_filename or args.burnin_framenumber:
         items = []
         if args.burnin_title:      items.append(f"title='{args.burnin_title}'")
         if args.burnin_filename:   items.append("filename")
         if args.burnin_framenumber: items.append("frame#")
         print(f"Burn-in:    {', '.join(items)}")
+    if args.slate_title or args.slate_creator or args.slate_year:
+        print(f"Slate:      title='{args.slate_title}' creator='{args.slate_creator}' year='{args.slate_year}'")
+    if args.watermark:
+        print(f"Watermark:  {args.watermark} at {args.watermark_corner}, {args.watermark_size}% wide, {args.watermark_opacity}% opacity")
     print()
 
     rc = run_conversion(
@@ -503,6 +684,16 @@ def main(argv=None) -> int:
         burnin_framenumber = args.burnin_framenumber,
         burnin_corner      = args.burnin_corner,
         verbose            = args.verbose,
+        crop_mode          = args.crop_mode,
+        trim_start         = args.trim_start,
+        trim_end           = args.trim_end,
+        slate_title        = args.slate_title,
+        slate_creator      = args.slate_creator,
+        slate_year         = args.slate_year,
+        watermark_path     = args.watermark,
+        watermark_corner   = args.watermark_corner,
+        watermark_opacity  = args.watermark_opacity,
+        watermark_size     = args.watermark_size,
     )
 
     if rc == 0:

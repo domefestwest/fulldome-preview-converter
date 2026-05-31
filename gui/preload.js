@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("api", {
   // Conversion
   startConversion: (opts) => ipcRenderer.invoke("start-conversion", opts),
   cancelConversion: () => ipcRenderer.invoke("cancel-conversion"),
+  browseWatermark: () => ipcRenderer.invoke("browse-watermark"),
+  browseFiles: () => ipcRenderer.invoke("browse-files"),
 
   // Progress / events from main → renderer
   onProgress: (cb) => {

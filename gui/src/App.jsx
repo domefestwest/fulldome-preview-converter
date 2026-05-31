@@ -16,6 +16,12 @@ const CRF_PRESETS = [
   { value: "manual",   label: "Manual",   crf: null },
 ];
 
+const CROP_MODE_OPTIONS = [
+  { value: "16:9", label: "16:9 Widescreen" },
+  { value: "9:16", label: "9:16 Vertical" },
+  { value: "1:1",  label: "1:1 Square" },
+];
+
 const IMAGE_EXTS = new Set([
   "jpg","jpeg","png","tif","tiff","exr","dpx","tga","bmp","webp","psd",
 ]);
@@ -25,8 +31,16 @@ function getFileType(filePath) {
   return IMAGE_EXTS.has(ext) ? "image" : "video";
 }
 
+function getOutputDims(resolution, cropMode) {
+  const base = resolution === "4k" ? 2160 : 1080;
+  if (cropMode === "16:9") return { w: base * 16 / 9, h: base };
+  if (cropMode === "9:16") return { w: base, h: base * 16 / 9 };
+  return { w: base, h: base }; // 1:1
+}
+
 const DEFAULT_STATE = {
   resolution:        "4k",
+  cropMode:          "16:9",
   sweetSpot:         30,
   pipSize:           480,
   pipEnabled:        true,
@@ -43,6 +57,22 @@ const DEFAULT_STATE = {
   burninFramenumber: false,
   burninCorner:      "bl",
   outputImageFormat: "jpg",
+  // Trim
+  trimStart:         0,
+  trimEnd:           null,
+  // Slate
+  slateEnabled:      false,
+  slateTitle:        "",
+  slateCreator:      "",
+  slateYear:         "",
+  // Watermark
+  watermarkEnabled:  false,
+  watermarkPath:     "",
+  watermarkCorner:   "br",
+  watermarkOpacity:  80,
+  watermarkSize:     15,
+  // Filename template
+  filenameTemplate:  "{filename}_{resolution}_{cropmode}_preview",
 };
 
 function loadSavedSettings() {
@@ -54,11 +84,29 @@ function loadSavedSettings() {
   }
 }
 
+function loadSavedPresets() {
+  try {
+    return JSON.parse(localStorage.getItem("dfw-presets") || "{}");
+  } catch {
+    return {};
+  }
+}
+
 const TABS = [
   { id: "framing", label: "Background Image" },
   { id: "pip",     label: "Picture-in-Picture" },
   { id: "export",  label: "Export" },
 ];
+
+function applyFilenameTemplate(template, { filename, resolution, cropMode }) {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const croptag = cropMode.replace(/:/g, "x");
+  return template
+    .replace(/{filename}/g, filename || "preview")
+    .replace(/{resolution}/g, resolution)
+    .replace(/{cropmode}/g, croptag)
+    .replace(/{date}/g, date);
+}
 
 export default function App() {
   const [file, setFile]                 = useState(null);
@@ -75,6 +123,17 @@ export default function App() {
   const [startTime, setStartTime] = useState(null);
   const [errorText, setErrorText] = useState("");
   const [doneOutput, setDoneOutput] = useState("");
+
+  // Presets
+  const [presets, setPresets]           = useState(loadSavedPresets);
+  const [activePreset, setActivePreset] = useState("");
+  const presetImportRef = useRef(null);
+
+  // Batch mode
+  const [batchMode, setBatchMode]   = useState(false);
+  const [queue, setQueue]           = useState([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const batchIndexRef = useRef(-1);
 
   const scrubTimerRef = useRef(null);
   const isElectron = typeof window.api !== "undefined";
@@ -96,26 +155,57 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
-    if (!isElectron) return;
-    const offProgress = window.api.onProgress(({ pct }) => setProgress(pct));
-    const offDone = window.api.onConversionDone(({ outputPath: op }) => {
-      setStatus("done"); setProgress(100); setDoneOutput(op);
-    });
-    const offError = window.api.onConversionError(({ message }) => {
-      setStatus("error"); setErrorText(message);
-    });
-    return () => { offProgress(); offDone(); offError(); };
-  }, [isElectron]);
+    localStorage.setItem("dfw-presets", JSON.stringify(presets));
+  }, [presets]);
 
   useEffect(() => {
+    if (!isElectron) return;
+    const offProgress = window.api.onProgress(({ pct }) => {
+      if (batchRunning) {
+        const idx = batchIndexRef.current;
+        if (idx >= 0) {
+          setQueue((q) => q.map((item, i) => i === idx ? { ...item, progress: pct } : item));
+        }
+      } else {
+        setProgress(pct);
+      }
+    });
+    const offDone = window.api.onConversionDone(({ outputPath: op }) => {
+      if (batchRunning) {
+        const idx = batchIndexRef.current;
+        if (idx >= 0) {
+          setQueue((q) => q.map((item, i) => i === idx ? { ...item, status: "done", progress: 100, outputPath: op } : item));
+        }
+      } else {
+        setStatus("done"); setProgress(100); setDoneOutput(op);
+      }
+    });
+    const offError = window.api.onConversionError(({ message }) => {
+      if (batchRunning) {
+        const idx = batchIndexRef.current;
+        if (idx >= 0) {
+          setQueue((q) => q.map((item, i) => i === idx ? { ...item, status: "error", error: message } : item));
+        }
+      } else {
+        setStatus("error"); setErrorText(message);
+      }
+    });
+    return () => { offProgress(); offDone(); offError(); };
+  }, [isElectron, batchRunning]);
+
+  // Output path — recomputed from filename template
+  useEffect(() => {
     if (!file) return;
-    const base = file.path.replace(/\.[^.]+$/, "");
-    const suffix = `_${settings.resolution}_preview`;
-    setOutputPath(fileType === "image"
-      ? `${base}${suffix}.${settings.outputImageFormat}`
-      : `${base}${suffix}.mp4`
-    );
-  }, [file, settings.resolution, fileType, settings.outputImageFormat]);
+    const dir = file.path.replace(/[/\\][^/\\]+$/, "");
+    const fileBase = file.name.replace(/\.[^.]+$/, "");
+    const rendered = applyFilenameTemplate(settings.filenameTemplate, {
+      filename: fileBase,
+      resolution: settings.resolution,
+      cropMode: settings.cropMode,
+    });
+    const ext = fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4";
+    setOutputPath(`${dir}/${rendered}${ext}`);
+  }, [file, settings.resolution, settings.cropMode, fileType, settings.outputImageFormat, settings.filenameTemplate]);
 
   const set = (key) => (val) => setSettings((s) => ({ ...s, [key]: val }));
 
@@ -197,6 +287,40 @@ export default function App() {
     if (p) setOutputPath(p);
   }
 
+  function buildConversionOpts(filePath, outPath) {
+    const preset   = CRF_PRESETS.find((p) => p.value === settings.quality);
+    const isManual = settings.quality === "manual";
+    return {
+      inputPath:         filePath,
+      outputPath:        outPath,
+      resolution:        settings.resolution,
+      cropMode:          settings.cropMode,
+      sweetSpot:         settings.sweetSpot,
+      pipSize:           settings.pipSize,
+      pipMargin:         settings.pipMargin,
+      pipPosition:       settings.pipPosition,
+      audio:             settings.audio,
+      crf:               isManual ? null : (preset?.crf ?? 18),
+      scale:             settings.scale / 100,
+      hPan:              settings.hPan,
+      pipEnabled:        settings.pipEnabled,
+      bitrateKbps:       isManual ? settings.bitrateKbps : null,
+      burninTitle:       settings.burninEnabled ? settings.burninTitle : "",
+      burninFilename:    settings.burninEnabled && settings.burninFilename,
+      burninFramenumber: settings.burninEnabled && settings.burninFramenumber,
+      burninCorner:      settings.burninCorner,
+      trimStart:         settings.trimStart || 0,
+      trimEnd:           settings.trimEnd || null,
+      slateTitle:        settings.slateEnabled ? settings.slateTitle : "",
+      slateCreator:      settings.slateEnabled ? settings.slateCreator : "",
+      slateYear:         settings.slateEnabled ? settings.slateYear : "",
+      watermarkPath:     settings.watermarkEnabled ? settings.watermarkPath : "",
+      watermarkCorner:   settings.watermarkCorner,
+      watermarkOpacity:  settings.watermarkOpacity,
+      watermarkSize:     settings.watermarkSize,
+    };
+  }
+
   async function handleConvert() {
     if (!file || status === "converting") return;
     if (isElectron) {
@@ -210,29 +334,8 @@ export default function App() {
     setErrorText("");
     setDoneOutput("");
 
-    const preset    = CRF_PRESETS.find((p) => p.value === settings.quality);
-    const isManual  = settings.quality === "manual";
-
     if (isElectron) {
-      await window.api.startConversion({
-        inputPath:         file.path,
-        outputPath,
-        resolution:        settings.resolution,
-        sweetSpot:         settings.sweetSpot,
-        pipSize:           settings.pipSize,
-        pipMargin:         settings.pipMargin,
-        pipPosition:       settings.pipPosition,
-        audio:             settings.audio,
-        crf:               isManual ? null : (preset?.crf ?? 18),
-        scale:             settings.scale / 100,
-        hPan:              settings.hPan,
-        pipEnabled:        settings.pipEnabled,
-        bitrateKbps:       isManual ? settings.bitrateKbps : null,
-        burninTitle:       settings.burninEnabled ? settings.burninTitle : "",
-        burninFilename:    settings.burninEnabled && settings.burninFilename,
-        burninFramenumber: settings.burninEnabled && settings.burninFramenumber,
-        burninCorner:      settings.burninCorner,
-      });
+      await window.api.startConversion(buildConversionOpts(file.path, outputPath));
     } else {
       let p = 0;
       const iv = setInterval(() => {
@@ -252,9 +355,133 @@ export default function App() {
     setProgress(0);
   }
 
+  // ---- Batch mode ----
+  async function handleAddFiles() {
+    if (!isElectron) return;
+    const paths = await window.api.browseFiles();
+    if (!paths || !paths.length) return;
+    const newItems = paths.map((p) => ({
+      id: `${p}-${Date.now()}-${Math.random()}`,
+      path: p,
+      name: p.split(/[/\\]/).pop(),
+      status: "pending",
+      progress: 0,
+      error: "",
+      outputPath: "",
+    }));
+    setQueue((q) => [...q, ...newItems]);
+  }
+
+  function buildBatchOutputPath(item) {
+    const dir = item.path.replace(/[/\\][^/\\]+$/, "");
+    const fileBase = item.name.replace(/\.[^.]+$/, "");
+    const rendered = applyFilenameTemplate(settings.filenameTemplate, {
+      filename: fileBase,
+      resolution: settings.resolution,
+      cropMode: settings.cropMode,
+    });
+    const ft = getFileType(item.path);
+    const ext = ft === "image" ? `.${settings.outputImageFormat}` : ".mp4";
+    return `${dir}/${rendered}${ext}`;
+  }
+
+  async function runBatch() {
+    if (!isElectron) return;
+    setBatchRunning(true);
+    const items = queue;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].status !== "pending") continue;
+      batchIndexRef.current = i;
+      const outPath = buildBatchOutputPath(items[i]);
+      setQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: "converting", progress: 0, outputPath: outPath } : item));
+      await window.api.startConversion(buildConversionOpts(items[i].path, outPath));
+      // Wait for done or error event — poll queue state
+      await new Promise((resolve) => {
+        const interval = setInterval(() => {
+          setQueue((q) => {
+            const current = q[i];
+            if (current && (current.status === "done" || current.status === "error")) {
+              clearInterval(interval);
+              resolve();
+            }
+            return q;
+          });
+        }, 300);
+      });
+    }
+    batchIndexRef.current = -1;
+    setBatchRunning(false);
+  }
+
+  // ---- Presets ----
+  function handleSavePreset() {
+    const name = window.prompt("Preset name:");
+    if (!name || !name.trim()) return;
+    setPresets((p) => ({ ...p, [name.trim()]: { ...settings } }));
+    setActivePreset(name.trim());
+  }
+
+  function handleLoadPreset(name) {
+    setActivePreset(name);
+    if (!name) return;
+    const preset = presets[name];
+    if (preset) setSettings({ ...DEFAULT_STATE, ...preset });
+  }
+
+  function handleDeletePreset() {
+    if (!activePreset) return;
+    setPresets((p) => {
+      const next = { ...p };
+      delete next[activePreset];
+      return next;
+    });
+    setActivePreset("");
+  }
+
+  function handleExportPresets() {
+    const blob = new Blob([JSON.stringify(presets, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "dfw-presets.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportPresets(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (typeof data === "object") {
+          setPresets((p) => ({ ...p, ...data }));
+        }
+      } catch {
+        alert("Invalid preset file.");
+      }
+    };
+    reader.readAsText(f);
+    e.target.value = "";
+  }
+
   const revealLabel = platform === "darwin" ? "Show in Finder"
                     : platform === "win32"   ? "Show in Explorer"
                     : "Show in Folder";
+
+  const outDims = getOutputDims(settings.resolution, settings.cropMode);
+  const hasSlate = settings.slateEnabled && (settings.slateTitle || settings.slateCreator || settings.slateYear);
+  const slateBarH = hasSlate ? Math.round(outDims.h * 0.10) : 0;
+  const finalDims = { w: outDims.w, h: outDims.h + slateBarH };
+
+  // Live filename preview
+  const fileBase = file ? file.name.replace(/\.[^.]+$/, "") : "filename";
+  const previewFilename = applyFilenameTemplate(settings.filenameTemplate, {
+    filename: fileBase,
+    resolution: settings.resolution,
+    cropMode: settings.cropMode,
+  });
 
   return (
     <div className={styles.shell}>
@@ -267,20 +494,127 @@ export default function App() {
 
       <main className={styles.main}>
 
+        {/* Batch mode toggle */}
+        <div className={styles.batchToggleRow}>
+          <button
+            className={batchMode ? styles.toggleOn : styles.toggleOff}
+            onClick={() => setBatchMode((v) => !v)}
+          >
+            {batchMode ? "Batch Mode: On" : "Batch Mode: Off"}
+          </button>
+          {batchMode && (
+            <span className={styles.hint} style={{ marginLeft: 8 }}>
+              Add multiple files to convert with the same settings
+            </span>
+          )}
+        </div>
+
         {/* Unified drop zone + live preview */}
-        <Preview
-          frameSrc={frameSrc}
-          isLoading={frameLoading}
-          settings={settings}
-          duration={fileDuration}
-          onScrub={handleScrub}
-          fileType={fileType}
-          file={file}
-          onDrop={handleFileDrop}
-          onBrowse={handleBrowse}
-          disabled={status === "converting"}
-          isElectron={isElectron}
-        />
+        {(!batchMode || !queue.length) && (
+          <Preview
+            frameSrc={frameSrc}
+            isLoading={frameLoading}
+            settings={settings}
+            duration={fileDuration}
+            onScrub={handleScrub}
+            fileType={fileType}
+            file={file}
+            onDrop={handleFileDrop}
+            onBrowse={handleBrowse}
+            disabled={status === "converting"}
+            isElectron={isElectron}
+            onTrimChange={({ start, end }) => setSettings((s) => ({ ...s, trimStart: start, trimEnd: end }))}
+          />
+        )}
+
+        {/* Batch queue panel */}
+        {batchMode && (
+          <div className={styles.batchPanel}>
+            <div className={styles.batchHeader}>
+              <span className={styles.batchTitle}>File Queue ({queue.length})</span>
+              <div className={styles.batchHeaderActions}>
+                <button className={styles.btnGhost} onClick={handleAddFiles} disabled={batchRunning}>
+                  Add Files…
+                </button>
+                <button
+                  className={styles.btnConvertSmall}
+                  disabled={!queue.some((i) => i.status === "pending") || batchRunning}
+                  onClick={runBatch}
+                >
+                  {batchRunning ? "Converting…" : "Convert All"}
+                </button>
+              </div>
+            </div>
+            {queue.length === 0 && (
+              <p className={styles.batchEmpty}>No files added yet. Click "Add Files…" to get started.</p>
+            )}
+            {queue.map((item, idx) => (
+              <div key={item.id} className={styles.batchRow}>
+                <span className={styles.batchFileName}>{item.name}</span>
+                <span className={[styles.batchChip, styles[`chip_${item.status}`]].join(" ")}>
+                  {item.status}
+                </span>
+                {item.status === "converting" && (
+                  <div className={styles.batchProgress}>
+                    <div className={styles.batchProgressBar} style={{ width: `${item.progress}%` }} />
+                  </div>
+                )}
+                {item.status === "pending" && !batchRunning && (
+                  <button
+                    className={styles.batchRemove}
+                    onClick={() => setQueue((q) => q.filter((_, i) => i !== idx))}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+            {queue.length > 0 && !batchRunning && (
+              <button
+                className={styles.btnGhost}
+                style={{ marginTop: 8 }}
+                onClick={() => setQueue([])}
+              >
+                Clear Queue
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Crop mode selector */}
+        <div className={styles.cropModeRow}>
+          <label className={styles.cropModeLabel}>Output Format</label>
+          <ToggleGroup
+            options={CROP_MODE_OPTIONS}
+            value={settings.cropMode}
+            onChange={set("cropMode")}
+          />
+          <span className={styles.dimsBadge}>
+            {finalDims.w}×{finalDims.h}
+            {hasSlate && <span className={styles.slateNote}> (incl. slate)</span>}
+          </span>
+        </div>
+
+        {/* Presets row */}
+        <div className={styles.presetsRow}>
+          <select
+            className={styles.presetSelect}
+            value={activePreset}
+            onChange={(e) => handleLoadPreset(e.target.value)}
+          >
+            <option value="">— Default —</option>
+            {Object.keys(presets).map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+          <button className={styles.btnGhost} onClick={handleSavePreset}>Save</button>
+          <button className={styles.btnGhost} onClick={handleDeletePreset} disabled={!activePreset}>Delete</button>
+          <button className={styles.btnGhost} onClick={handleExportPresets} title="Export presets as JSON">⬇ Export</button>
+          <label className={styles.btnGhost} style={{ cursor: "pointer" }} title="Import presets from JSON">
+            ⬆ Import
+            <input ref={presetImportRef} type="file" accept=".json" style={{ display: "none" }} onChange={handleImportPresets} />
+          </label>
+        </div>
 
         {/* Tabbed settings panel */}
         <div className={styles.tabPanel}>
@@ -302,7 +636,7 @@ export default function App() {
 
             {activeTab === "framing" && (
               <div className={styles.tabGrid}>
-                {/* Left column: position controls (tied together) */}
+                {/* Left column: position controls */}
                 <div className={styles.tabCol}>
                   <div className={styles.field}>
                     <label className={styles.fieldLabel}>
@@ -440,7 +774,25 @@ export default function App() {
                       />
                     </div>
                   )}
+
+                  {/* Filename Template */}
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Filename Template</label>
+                    <input
+                      type="text"
+                      className={styles.burnInInput}
+                      value={settings.filenameTemplate}
+                      onChange={(e) => set("filenameTemplate")(e.target.value)}
+                    />
+                    <p className={styles.hint}>
+                      Tokens: {"{filename}"} {"{resolution}"} {"{cropmode}"} {"{date}"}
+                    </p>
+                    <p className={styles.filenamePreview}>
+                      → {previewFilename}{fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4"}
+                    </p>
+                  </div>
                 </div>
+
                 <div className={styles.tabCol}>
                   <div className={styles.field}>
                     <div className={styles.burnInHeader}>
@@ -489,6 +841,84 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
+                  {/* Slate Bar */}
+                  <div className={styles.field}>
+                    <div className={styles.burnInHeader}>
+                      <label className={styles.fieldLabel} style={{ margin: 0 }}>Slate Bar</label>
+                      <button
+                        className={settings.slateEnabled ? styles.toggleOn : styles.toggleOff}
+                        onClick={() => set("slateEnabled")(!settings.slateEnabled)}
+                        aria-pressed={settings.slateEnabled}
+                      >
+                        {settings.slateEnabled ? "On" : "Off"}
+                      </button>
+                    </div>
+                    {settings.slateEnabled && (
+                      <div className={styles.burnInFields}>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Title</label>
+                          <input type="text" className={styles.burnInInput} placeholder="Film title"
+                            value={settings.slateTitle} onChange={(e) => set("slateTitle")(e.target.value)} />
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Creator</label>
+                          <input type="text" className={styles.burnInInput} placeholder="Director / studio"
+                            value={settings.slateCreator} onChange={(e) => set("slateCreator")(e.target.value)} />
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Year</label>
+                          <input type="text" className={styles.burnInInput} placeholder="2024"
+                            value={settings.slateYear} onChange={(e) => set("slateYear")(e.target.value)} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Watermark */}
+                  <div className={styles.field}>
+                    <div className={styles.burnInHeader}>
+                      <label className={styles.fieldLabel} style={{ margin: 0 }}>Watermark / Logo</label>
+                      <button
+                        className={settings.watermarkEnabled ? styles.toggleOn : styles.toggleOff}
+                        onClick={() => set("watermarkEnabled")(!settings.watermarkEnabled)}
+                        aria-pressed={settings.watermarkEnabled}
+                      >
+                        {settings.watermarkEnabled ? "On" : "Off"}
+                      </button>
+                    </div>
+                    {settings.watermarkEnabled && (
+                      <div className={styles.burnInFields}>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Logo file</label>
+                          <div className={styles.watermarkFileRow}>
+                            <span className={styles.watermarkPath}>{settings.watermarkPath || "No file selected"}</span>
+                            <button className={styles.btnGhost} onClick={async () => {
+                              if (!isElectron) return;
+                              const p = await window.api.browseWatermark();
+                              if (p) set("watermarkPath")(p);
+                            }}>Browse…</button>
+                          </div>
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Position</label>
+                          <PipPositionPicker value={settings.watermarkCorner} onChange={set("watermarkCorner")} />
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>
+                            Opacity: {settings.watermarkOpacity}%
+                          </label>
+                          <Slider min={0} max={100} value={settings.watermarkOpacity} onChange={set("watermarkOpacity")} />
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>
+                            Size: {settings.watermarkSize}% of width
+                          </label>
+                          <Slider min={5} max={50} value={settings.watermarkSize} onChange={set("watermarkSize")} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -512,21 +942,23 @@ export default function App() {
         </div>
 
         {/* Convert / Cancel */}
-        <div className={styles.actions}>
-          {status !== "converting" ? (
-            <button className={styles.btnConvert} disabled={!file} onClick={handleConvert}>
-              Convert
-            </button>
-          ) : (
-            <button className={styles.btnCancel} onClick={handleCancel}>Cancel</button>
-          )}
-        </div>
+        {!batchMode && (
+          <div className={styles.actions}>
+            {status !== "converting" ? (
+              <button className={styles.btnConvert} disabled={!file} onClick={handleConvert}>
+                Convert
+              </button>
+            ) : (
+              <button className={styles.btnCancel} onClick={handleCancel}>Cancel</button>
+            )}
+          </div>
+        )}
 
-        {(status === "converting" || status === "done") && (
+        {!batchMode && (status === "converting" || status === "done") && (
           <ProgressBar pct={progress} startTime={startTime} done={status === "done"} />
         )}
 
-        {status === "done" && (
+        {!batchMode && status === "done" && (
           <div className={styles.resultSuccess}>
             <span className={styles.successIcon}>✓</span>
             <span className={styles.resultPath}>{doneOutput}</span>
@@ -538,7 +970,7 @@ export default function App() {
           </div>
         )}
 
-        {status === "error" && (
+        {!batchMode && status === "error" && (
           <div className={styles.resultError}>
             <div className={styles.errorHeader}>
               <span>Conversion failed</span>

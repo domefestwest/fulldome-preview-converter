@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "./Preview.module.css";
 
-const RESOLUTIONS = {
-  "4k":    { w: 3840, h: 2160 },
-  "1080p": { w: 1920, h: 1080 },
-};
-
 const VIDEO_EXTS = new Set([
   "mp4","mov","m4v","avi","mkv","mxf","mts","m2ts","webm","flv","wmv","3gp","mpg","mpeg","ts","dv",
 ]);
@@ -24,15 +19,38 @@ function fmt(s) {
   return `${m}:${sec}`;
 }
 
+function getOutputDims(resolution, cropMode) {
+  const base = resolution === "4k" ? 2160 : 1080;
+  if (cropMode === "16:9") return { w: Math.round(base * 16 / 9), h: base };
+  if (cropMode === "9:16") return { w: base, h: Math.round(base * 16 / 9) };
+  return { w: base, h: base };
+}
+
 export default function Preview({
   frameSrc, isLoading, settings, duration, onScrub, fileType,
-  file, onDrop, onBrowse, disabled, isElectron,
+  file, onDrop, onBrowse, disabled, isElectron, onTrimChange,
 }) {
   const canvasRef  = useRef(null);
   const imgRef     = useRef(null);
   const inputRef   = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [seekPct, setSeekPct]   = useState(Math.round(5 / Math.max(duration || 60, 1) * 100));
+
+  // Trim state (local, synced up via onTrimChange)
+  const [trimStart, setTrimStart] = useState(settings.trimStart || 0);
+  const [trimEnd, setTrimEnd]     = useState(settings.trimEnd || duration || 0);
+
+  // Sync trimEnd when duration changes
+  useEffect(() => {
+    if (duration && (settings.trimEnd == null || settings.trimEnd === 0)) {
+      setTrimEnd(duration);
+    }
+  }, [duration]);
+
+  useEffect(() => {
+    setTrimStart(settings.trimStart || 0);
+    setTrimEnd(settings.trimEnd != null ? settings.trimEnd : (duration || 0));
+  }, [settings.trimStart, settings.trimEnd, duration]);
 
   useEffect(() => {
     if (!frameSrc) return;
@@ -51,29 +69,38 @@ export default function Preview({
     if (!canvas || !img) return;
 
     const {
-      resolution, sweetSpot, pipSize, pipMargin, pipPosition,
+      resolution, cropMode = "16:9",
+      sweetSpot, pipSize, pipMargin, pipPosition,
       scale: scalePct = 100, hPan = 50,
       burninEnabled, burninTitle, burninFilename, burninFramenumber, burninCorner = "bl",
+      slateEnabled, slateTitle, slateCreator, slateYear,
+      watermarkEnabled, watermarkCorner = "br", watermarkSize = 15,
     } = settings;
 
-    const res         = RESOLUTIONS[resolution];
-    const outW        = res.w;
-    const outH        = res.h;
+    const { w: outW, h: outH } = getOutputDims(resolution, cropMode);
     const scaleFactor = scalePct / 100;
 
-    const scaleDim  = outW * scaleFactor;
+    // For non-16:9 modes the source square may need to be bigger
+    const baseDim   = Math.max(outW, outH);
+    const scaleDim  = baseDim * scaleFactor;
     const maxY      = scaleDim - outH;
     const maxX      = scaleDim - outW;
-    const cropY     = Math.round(maxY * (1 - sweetSpot / 100));
+    const cropY     = maxY > 0 ? Math.round(maxY * (1 - sweetSpot / 100)) : 0;
     const cropX     = maxX > 0 ? Math.round(maxX * (hPan / 100)) : 0;
 
     const pip    = pipSize || (resolution === "4k" ? 480 : 270);
-    const cScale = canvas.width / outW;
-    const cH     = Math.round(outH * cScale);
-    if (canvas.height !== cH) canvas.height = cH;
+
+    // Set canvas dimensions based on aspect ratio
+    // Display: max height 480px, width computed from aspect
+    const displayH = 480;
+    const displayW = Math.round(displayH * outW / outH);
+    canvas.width  = displayW;
+    canvas.height = displayH;
+
+    const cScale = displayW / outW;
 
     const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, displayW, displayH);
 
     const drawSide     = scaleDim * cScale;
     const drawCropTop  = cropY * cScale;
@@ -84,10 +111,10 @@ export default function Preview({
       const pipPx  = pip * cScale;
       const margin = pipMargin * cScale;
       let px, py;
-      if (pipPosition === "br") { px = canvas.width - pipPx - margin; py = cH - pipPx - margin; }
-      if (pipPosition === "bl") { px = margin;                         py = cH - pipPx - margin; }
-      if (pipPosition === "tr") { px = canvas.width - pipPx - margin; py = margin; }
-      if (pipPosition === "tl") { px = margin;                         py = margin; }
+      if (pipPosition === "br") { px = displayW - pipPx - margin; py = displayH - pipPx - margin; }
+      if (pipPosition === "bl") { px = margin;                     py = displayH - pipPx - margin; }
+      if (pipPosition === "tr") { px = displayW - pipPx - margin; py = margin; }
+      if (pipPosition === "tl") { px = margin;                     py = margin; }
 
       ctx.save();
       ctx.beginPath();
@@ -119,8 +146,8 @@ export default function Preview({
         ctx.textAlign = burninCorner === "bl" ? "left" : "right";
 
         lines.forEach((text, i) => {
-          const x = burninCorner === "bl" ? margin : canvas.width - margin;
-          const y = cH - margin - (lines.length - 1 - i) * lineH;
+          const x = burninCorner === "bl" ? margin : displayW - margin;
+          const y = displayH - margin - (lines.length - 1 - i) * lineH;
           ctx.lineWidth   = Math.max(2, Math.round(3 * cScale));
           ctx.strokeStyle = "rgba(0,0,0,0.8)";
           ctx.strokeText(text, x, y);
@@ -129,12 +156,79 @@ export default function Preview({
         });
       }
     }
+
+    // Slate bar preview
+    if (slateEnabled && (slateTitle || slateCreator || slateYear)) {
+      const barH = Math.round(displayH * 0.10);
+      // Expand canvas height to fit slate
+      canvas.height = displayH + barH;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, displayH, displayW, barH);
+
+      if (slateTitle) {
+        ctx.font = `bold ${Math.max(8, Math.round(16 * cScale))}px system-ui, sans-serif`;
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.fillText(slateTitle, displayW / 2, displayH + barH / 2 + 5);
+      }
+      if (slateCreator) {
+        ctx.font = `${Math.max(7, Math.round(12 * cScale))}px system-ui, sans-serif`;
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.textAlign = "left";
+        ctx.fillText(slateCreator, 10 * cScale, displayH + barH - 6 * cScale);
+      }
+      if (slateYear) {
+        ctx.font = `${Math.max(7, Math.round(12 * cScale))}px system-ui, sans-serif`;
+        ctx.fillStyle = "rgba(255,255,255,0.65)";
+        ctx.textAlign = "right";
+        ctx.fillText(slateYear, displayW - 10 * cScale, displayH + barH - 6 * cScale);
+      }
+    }
+
+    // Watermark placeholder
+    if (watermarkEnabled && settings.watermarkPath) {
+      const wPx = Math.round(displayW * watermarkSize / 100);
+      const wH  = Math.round(wPx * 0.5); // estimate
+      const margin = 10;
+      let wx, wy;
+      if (watermarkCorner === "br") { wx = displayW - wPx - margin; wy = displayH - wH - margin; }
+      else if (watermarkCorner === "bl") { wx = margin; wy = displayH - wH - margin; }
+      else if (watermarkCorner === "tr") { wx = displayW - wPx - margin; wy = margin; }
+      else { wx = margin; wy = margin; }
+
+      ctx.save();
+      ctx.globalAlpha = (settings.watermarkOpacity || 80) / 100;
+      ctx.fillStyle = "rgba(255,255,255,0.2)";
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1;
+      ctx.fillRect(wx, wy, wPx, wH);
+      ctx.strokeRect(wx, wy, wPx, wH);
+      ctx.font = `bold ${Math.max(8, Math.round(11 * cScale))}px system-ui, sans-serif`;
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.textAlign = "center";
+      ctx.fillText("LOGO", wx + wPx / 2, wy + wH / 2 + 4);
+      ctx.restore();
+    }
   }
 
   function handleSeekChange(e) {
     const pct = Number(e.target.value);
     setSeekPct(pct);
     if (duration && onScrub) onScrub((pct / 100) * duration);
+  }
+
+  function handleTrimStartChange(e) {
+    const val = Number(e.target.value);
+    const clamped = Math.min(val, trimEnd - 0.1);
+    setTrimStart(clamped);
+    onTrimChange?.({ start: clamped, end: trimEnd });
+  }
+
+  function handleTrimEndChange(e) {
+    const val = Number(e.target.value);
+    const clamped = Math.max(val, trimStart + 0.1);
+    setTrimEnd(clamped);
+    onTrimChange?.({ start: trimStart, end: clamped });
   }
 
   // ---- drag-and-drop on the zone ----
@@ -164,6 +258,7 @@ export default function Preview({
   const isImage     = fileType === "image";
   const seekSeconds = duration ? (seekPct / 100) * duration : null;
   const hasFile     = !!frameSrc || isLoading;
+  const showTrim    = !isImage && duration && duration > 0;
 
   return (
     <div
@@ -212,8 +307,6 @@ export default function Preview({
             <canvas
               ref={canvasRef}
               className={[styles.canvas, isLoading ? styles.dimmed : ""].join(" ")}
-              width={960}
-              height={540}
             />
             {isLoading && (
               <div className={styles.loadingOverlay}>
@@ -252,6 +345,39 @@ export default function Preview({
                 aria-label="Scrub to frame"
               />
               <span className={styles.scrubLabel}>{fmt(duration)}</span>
+            </div>
+          )}
+
+          {/* Trim controls — video only */}
+          {showTrim && (
+            <div className={styles.trimSection}>
+              <div className={styles.trimRow}>
+                <span className={styles.trimLabel}>In</span>
+                <input
+                  type="range"
+                  className={styles.trimSlider}
+                  min={0} max={duration} step={0.1}
+                  value={trimStart}
+                  onChange={handleTrimStartChange}
+                  style={{ "--pct": `${(trimStart / duration) * 100}%` }}
+                />
+                <span className={styles.trimTime}>{fmt(trimStart)}</span>
+              </div>
+              <div className={styles.trimRow}>
+                <span className={styles.trimLabel}>Out</span>
+                <input
+                  type="range"
+                  className={styles.trimSlider}
+                  min={0} max={duration} step={0.1}
+                  value={trimEnd}
+                  onChange={handleTrimEndChange}
+                  style={{ "--pct": `${(trimEnd / duration) * 100}%` }}
+                />
+                <span className={styles.trimTime}>{fmt(trimEnd)}</span>
+              </div>
+              <p className={styles.trimDuration}>
+                Duration: {fmt(Math.max(0, trimEnd - trimStart))}
+              </p>
             </div>
           )}
         </>
