@@ -278,6 +278,7 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     burninTitle,
     burninFilename,
     burninFramenumber,
+    burninCorner,
   } = opts;
 
   const python = findPython();
@@ -312,6 +313,7 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
   if (burninTitle) args.push("--burnin-title", burninTitle);
   if (burninFilename) args.push("--burnin-filename");
   if (burninFramenumber) args.push("--burnin-framenumber");
+  if (burninCorner) args.push("--burnin-corner", burninCorner);
 
   const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;

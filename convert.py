@@ -122,6 +122,7 @@ def build_filtergraph(
     burnin_title: str | None = None,
     burnin_filename: str | None = None,
     burnin_framenumber: bool = False,
+    burnin_corner: str = "bl",
     fps: str = "30/1",
 ) -> tuple[str, str | None]:
     """
@@ -157,26 +158,25 @@ def build_filtergraph(
         f"crop={out_width}:{out_height}:{crop_x}:{crop_y}[bg]"
     )
 
+    # Build burn-in items (all stack in the chosen bottom corner)
+    burnin_items = []
+    if burnin_title:       burnin_items.append(("text", _esc(burnin_title)))
+    if burnin_filename:    burnin_items.append(("text", _esc(burnin_filename)))
+    if burnin_framenumber: burnin_items.append(("framenumber", None))
+
+    x_expr = "20" if burnin_corner == "bl" else "w-text_w-20"
+    fontsize = 28
+
     drawtext_filters = []
-    if burnin_title:
-        safe = _esc(burnin_title)
+    for i, (kind, val) in enumerate(burnin_items):
+        # Stack from bottom: last item closest to edge, first item highest
+        y_offset = 20 + (len(burnin_items) - 1 - i) * (fontsize + 14)
+        y_expr = f"h-text_h-{y_offset}"
+        text_expr = f"'Frame\\: %{{n}}'" if kind == "framenumber" else f"'{val}'"
         drawtext_filters.append(
-            f"drawtext=text='{safe}':font='Arial':"
-            f"fontsize=40:fontcolor=white:borderw=2:bordercolor=black@0.75:"
-            f"x=(w-text_w)/2:y=36"
-        )
-    if burnin_filename:
-        safe = _esc(burnin_filename)
-        drawtext_filters.append(
-            f"drawtext=text='{safe}':font='Arial':"
-            f"fontsize=26:fontcolor=white:borderw=2:bordercolor=black@0.75:"
-            f"x=20:y=h-text_h-20"
-        )
-    if burnin_framenumber:
-        drawtext_filters.append(
-            f"drawtext=text='Frame\\: %{{n}}':font='Arial':"
-            f"fontsize=26:fontcolor=white:borderw=2:bordercolor=black@0.75:"
-            f"x=w-text_w-20:y=h-text_h-20"
+            f"drawtext=text={text_expr}:font='Arial':"
+            f"fontsize={fontsize}:fontcolor=white:borderw=2:bordercolor=black@0.75:"
+            f"x={x_expr}:y={y_expr}"
         )
 
     if pip_enabled:
@@ -241,6 +241,7 @@ def run_conversion(
     burnin_title: str | None = None,
     burnin_filename: str | None = None,
     burnin_framenumber: bool = False,
+    burnin_corner: str = "bl",
     verbose: bool = False,
 ) -> int:
     res    = RESOLUTIONS[resolution]
@@ -266,6 +267,7 @@ def run_conversion(
         burnin_title       = burnin_title,
         burnin_filename    = burnin_filename,
         burnin_framenumber = burnin_framenumber,
+        burnin_corner      = burnin_corner,
         fps                = fps,
     )
 
@@ -412,11 +414,13 @@ Examples:
     p.add_argument("--bitrate",      type=int, default=None, metavar="KBPS",
                    help="Manual video bitrate in kbps, e.g. 20000 for 20 Mbps")
     p.add_argument("--burnin-title", default=None, metavar="TEXT",
-                   help="Burn title text into the top-center of the frame")
+                   help="Burn title text into the frame")
     p.add_argument("--burnin-filename", action="store_true",
-                   help="Burn the source filename into the bottom-left")
+                   help="Burn the source filename into the frame")
     p.add_argument("--burnin-framenumber", action="store_true",
-                   help="Burn the frame number into the bottom-right")
+                   help="Burn the frame number into the frame")
+    p.add_argument("--burnin-corner", default="bl", choices=["bl", "br"],
+                   help="Corner for all burn-in overlays: bl=bottom-left, br=bottom-right (default: bl)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="Print FFmpeg command and raw output")
     return p.parse_args(argv)
@@ -497,6 +501,7 @@ def main(argv=None) -> int:
         burnin_title       = args.burnin_title,
         burnin_filename    = Path(args.input).name if args.burnin_filename else None,
         burnin_framenumber = args.burnin_framenumber,
+        burnin_corner      = args.burnin_corner,
         verbose            = args.verbose,
     )
 

@@ -53,6 +53,7 @@ export default function Preview({
     const {
       resolution, sweetSpot, pipSize, pipMargin, pipPosition,
       scale: scalePct = 100, hPan = 50,
+      burninEnabled, burninTitle, burninFilename, burninFramenumber, burninCorner = "bl",
     } = settings;
 
     const res         = RESOLUTIONS[resolution];
@@ -100,6 +101,33 @@ export default function Preview({
       ctx.strokeStyle = "rgba(255,255,255,0.25)";
       ctx.lineWidth   = 1.5;
       ctx.stroke();
+    }
+
+    // Burn-in overlay preview
+    if (burninEnabled) {
+      const lines = [];
+      if (burninTitle)       lines.push(burninTitle);
+      if (burninFilename)    lines.push(file?.name || "filename.mp4");
+      if (burninFramenumber) lines.push("Frame: 000");
+
+      if (lines.length > 0) {
+        const fontSize  = Math.max(10, Math.round(14 * cScale));
+        const lineH     = fontSize + Math.round(6 * cScale);
+        const margin    = Math.round(10 * cScale);
+
+        ctx.font      = `600 ${fontSize}px system-ui, sans-serif`;
+        ctx.textAlign = burninCorner === "bl" ? "left" : "right";
+
+        lines.forEach((text, i) => {
+          const x = burninCorner === "bl" ? margin : canvas.width - margin;
+          const y = cH - margin - (lines.length - 1 - i) * lineH;
+          ctx.lineWidth   = Math.max(2, Math.round(3 * cScale));
+          ctx.strokeStyle = "rgba(0,0,0,0.8)";
+          ctx.strokeText(text, x, y);
+          ctx.fillStyle = "white";
+          ctx.fillText(text, x, y);
+        });
+      }
     }
   }
 

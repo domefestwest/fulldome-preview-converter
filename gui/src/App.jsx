@@ -41,6 +41,7 @@ const DEFAULT_STATE = {
   burninTitle:       "",
   burninFilename:    false,
   burninFramenumber: false,
+  burninCorner:      "bl",
   outputImageFormat: "jpg",
 };
 
@@ -230,6 +231,7 @@ export default function App() {
         burninTitle:       settings.burninEnabled ? settings.burninTitle : "",
         burninFilename:    settings.burninEnabled && settings.burninFilename,
         burninFramenumber: settings.burninEnabled && settings.burninFramenumber,
+        burninCorner:      settings.burninCorner,
       });
     } else {
       let p = 0;
@@ -300,6 +302,26 @@ export default function App() {
 
             {activeTab === "framing" && (
               <div className={styles.tabGrid}>
+                {/* Left column: position controls (tied together) */}
+                <div className={styles.tabCol}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>
+                      Vertical Position
+                      <span className={styles.numBadge}>{settings.sweetSpot}%</span>
+                    </label>
+                    <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} />
+                    <p className={styles.hint}>0% = top of dome · 100% = bottom</p>
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>
+                      Horizontal Position
+                      <span className={styles.numBadge}>{settings.hPan}%</span>
+                    </label>
+                    <Slider min={0} max={100} value={settings.hPan} onChange={set("hPan")} />
+                    <p className={styles.hint}>0% = left · 50% = center · 100% = right</p>
+                  </div>
+                </div>
+                {/* Right column: resolution + scale */}
                 <div className={styles.tabCol}>
                   <div className={styles.field}>
                     <label className={styles.fieldLabel}>Output Resolution</label>
@@ -311,29 +333,11 @@ export default function App() {
                   </div>
                   <div className={styles.field}>
                     <label className={styles.fieldLabel}>
-                      Vertical Position
-                      <span className={styles.numBadge}>{settings.sweetSpot}%</span>
-                    </label>
-                    <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} />
-                    <p className={styles.hint}>0% = top of dome · 100% = bottom</p>
-                  </div>
-                </div>
-                <div className={styles.tabCol}>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel}>
                       Scale
                       <span className={styles.numBadge}>{settings.scale}%</span>
                     </label>
                     <Slider min={100} max={400} value={settings.scale} onChange={set("scale")} />
                     <p className={styles.hint}>Zoom in to fill black corners</p>
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel}>
-                      Horizontal Position
-                      <span className={styles.numBadge}>{settings.hPan}%</span>
-                    </label>
-                    <Slider min={0} max={100} value={settings.hPan} onChange={set("hPan")} />
-                    <p className={styles.hint}>0% = left · 50% = center · 100% = right</p>
                   </div>
                 </div>
               </div>
@@ -452,7 +456,18 @@ export default function App() {
                     {settings.burninEnabled && (
                       <div className={styles.burnInFields}>
                         <div className={styles.burnInRow}>
-                          <label className={styles.burnInLabel}>Title text (top center)</label>
+                          <label className={styles.burnInLabel}>Corner</label>
+                          <ToggleGroup
+                            options={[
+                              { value: "bl", label: "Bottom Left" },
+                              { value: "br", label: "Bottom Right" },
+                            ]}
+                            value={settings.burninCorner}
+                            onChange={set("burninCorner")}
+                          />
+                        </div>
+                        <div className={styles.burnInRow}>
+                          <label className={styles.burnInLabel}>Title text</label>
                           <input
                             type="text"
                             className={styles.burnInInput}
@@ -464,12 +479,12 @@ export default function App() {
                         <label className={styles.burnInCheck}>
                           <input type="checkbox" checked={settings.burninFilename}
                             onChange={(e) => set("burninFilename")(e.target.checked)} />
-                          Filename (bottom left)
+                          Filename
                         </label>
                         <label className={styles.burnInCheck}>
                           <input type="checkbox" checked={settings.burninFramenumber}
                             onChange={(e) => set("burninFramenumber")(e.target.checked)} />
-                          Frame number (bottom right)
+                          Frame number
                         </label>
                       </div>
                     )}
