@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld("api", {
   extractFrame: (filePath) => ipcRenderer.invoke("extract-frame", filePath),
   scrubFrame: (filePath, seekSeconds) => ipcRenderer.invoke("scrub-frame", filePath, seekSeconds),
   browseFile: () => ipcRenderer.invoke("browse-file"),
-  browseOutputDir: (defaultPath) => ipcRenderer.invoke("browse-output-dir", defaultPath),
+  browseOutputDir: (defaultPath, fileType) => ipcRenderer.invoke("browse-output-dir", defaultPath, fileType),
   probeFile: (filePath) => ipcRenderer.invoke("probe-file", filePath),
   openFile: (filePath) => ipcRenderer.invoke("open-file", filePath),
   openFolder: (filePath) => ipcRenderer.invoke("open-folder", filePath),

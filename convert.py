@@ -288,7 +288,7 @@ def build_filtergraph(
         oy_wm = oy_wm.format(m=margin)
         opacity_f = watermark_opacity / 100.0
         parts.append(
-            f"[{wm_idx}:v]scale=round(iw*{watermark_size}/100):-1:flags=lanczos,"
+            f"[{wm_idx}:v]scale=round({out_width}*{watermark_size}/100):-1:flags=lanczos,"
             f"format=rgba,colorchannelmixer=aa={opacity_f:.3f}[wm]"
         )
         parts.append(f"[{cur}][wm]overlay={ox_wm}:{oy_wm}:format=auto[wmout]")
