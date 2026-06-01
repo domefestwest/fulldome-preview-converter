@@ -14,6 +14,13 @@ contextBridge.exposeInMainWorld("api", {
   openFolder: (filePath) => ipcRenderer.invoke("open-folder", filePath),
   confirmOverwrite: (filePath) => ipcRenderer.invoke("confirm-overwrite", filePath),
 
+  // Path construction (centralized — works on Mac/Windows/Linux)
+  buildOutputPath: (inputPath, renderedBase, ext) =>
+    ipcRenderer.invoke("build-output-path", inputPath, renderedBase, ext),
+
+  // System info (startup health check)
+  getSystemInfo: () => ipcRenderer.invoke("system-info"),
+
   // Conversion
   startConversion: (opts) => ipcRenderer.invoke("start-conversion", opts),
   cancelConversion: () => ipcRenderer.invoke("cancel-conversion"),

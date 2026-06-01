@@ -261,6 +261,68 @@ ipcMain.handle("confirm-overwrite", async (_evt, filePath) => {
 });
 
 // ---------------------------------------------------------------------------
+// IPC: cross-platform path construction
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the output path for a given input file using Node's path module.
+ * Centralizes separator handling so the renderer never has to detect
+ * \ vs / from the input path. Works identically on Mac, Windows, Linux.
+ *
+ * @param {string} inputPath   Absolute path to source file
+ * @param {string} renderedBase  Filename without extension (template already applied)
+ * @param {string} ext         Output extension WITH leading dot (e.g. ".mp4")
+ * @returns {string}           Absolute output path with platform-correct separators
+ */
+ipcMain.handle("build-output-path", (_evt, inputPath, renderedBase, ext) => {
+  const dir = path.dirname(inputPath);
+  return path.join(dir, renderedBase + ext);
+});
+
+// ---------------------------------------------------------------------------
+// IPC: system info — startup health check
+// ---------------------------------------------------------------------------
+
+let systemInfoCache = null;
+
+ipcMain.handle("system-info", async () => {
+  if (systemInfoCache) return systemInfoCache;
+
+  const python = findPython();
+  const script = findConvertScript();
+
+  return new Promise((resolve) => {
+    const proc = spawn(python, [script, "--system-info"], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      if (code === 0) {
+        try {
+          systemInfoCache = { ok: true, ...JSON.parse(stdout) };
+          resolve(systemInfoCache);
+          return;
+        } catch (e) {
+          resolve({ ok: false, error: `Parse error: ${e.message}`, stdout, stderr });
+          return;
+        }
+      }
+      resolve({ ok: false, error: stderr || `Process exited ${code}`, python, script });
+    });
+    proc.on("error", (err) => {
+      resolve({
+        ok: false,
+        error: err.code === "ENOENT"
+          ? "Python not found. Install Python 3.10+ and make sure it's on your PATH."
+          : err.message,
+        python,
+      });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // IPC: conversion
 // ---------------------------------------------------------------------------
 

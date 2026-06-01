@@ -137,9 +137,21 @@ export default function App() {
   const [batchRunning, setBatchRunning] = useState(false);
   const batchIndexRef = useRef(-1);
 
+  // System info (FFmpeg/Python/GPU detection from main process)
+  const [systemInfo, setSystemInfo] = useState(null);
+
   const scrubTimerRef = useRef(null);
   const isElectron = typeof window.api !== "undefined";
   const platform   = window.api?.platform || "darwin";
+
+  // Fetch system info once at startup — surfaces missing dependencies
+  // and shows which encoder is actually being used.
+  useEffect(() => {
+    if (!isElectron) return;
+    window.api.getSystemInfo().then(setSystemInfo).catch((err) => {
+      setSystemInfo({ ok: false, error: String(err) });
+    });
+  }, [isElectron]);
 
   // Prevent Electron from navigating when files are dragged over non-target areas
   useEffect(() => {
@@ -195,11 +207,10 @@ export default function App() {
     return () => { offProgress(); offDone(); offError(); };
   }, [isElectron, batchRunning]);
 
-  // Output path — recomputed from filename template
+  // Output path — recomputed from filename template, joined via main process
+  // (uses Node's path.join so separators are correct on Mac, Windows, Linux)
   useEffect(() => {
     if (!file) return;
-    const sep = file.path.includes("\\") ? "\\" : "/";
-    const dir = file.path.replace(/[/\\][^/\\]+$/, "");
     const fileBase = file.name.replace(/\.[^.]+$/, "");
     const rendered = applyFilenameTemplate(settings.filenameTemplate, {
       filename: fileBase,
@@ -207,8 +218,14 @@ export default function App() {
       cropMode: settings.cropMode,
     });
     const ext = fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4";
-    setOutputPath(`${dir}${sep}${rendered}${ext}`);
-  }, [file, settings.resolution, settings.cropMode, fileType, settings.outputImageFormat, settings.filenameTemplate]);
+    if (isElectron) {
+      window.api.buildOutputPath(file.path, rendered, ext).then(setOutputPath);
+    } else {
+      // Browser preview fallback: use forward slash
+      const dir = file.path.replace(/[/\\][^/\\]+$/, "");
+      setOutputPath(`${dir}/${rendered}${ext}`);
+    }
+  }, [file, settings.resolution, settings.cropMode, fileType, settings.outputImageFormat, settings.filenameTemplate, isElectron]);
 
   const set = (key) => (val) => setSettings((s) => ({ ...s, [key]: val }));
 
@@ -376,9 +393,7 @@ export default function App() {
     setQueue((q) => [...q, ...newItems]);
   }
 
-  function buildBatchOutputPath(item) {
-    const sep = item.path.includes("\\") ? "\\" : "/";
-    const dir = item.path.replace(/[/\\][^/\\]+$/, "");
+  async function buildBatchOutputPath(item) {
     const fileBase = item.name.replace(/\.[^.]+$/, "");
     const rendered = applyFilenameTemplate(settings.filenameTemplate, {
       filename: fileBase,
@@ -387,7 +402,11 @@ export default function App() {
     });
     const ft = getFileType(item.path);
     const ext = ft === "image" ? `.${settings.outputImageFormat}` : ".mp4";
-    return `${dir}${sep}${rendered}${ext}`;
+    if (isElectron) {
+      return await window.api.buildOutputPath(item.path, rendered, ext);
+    }
+    const dir = item.path.replace(/[/\\][^/\\]+$/, "");
+    return `${dir}/${rendered}${ext}`;
   }
 
   async function runBatch() {
@@ -397,7 +416,7 @@ export default function App() {
     for (let i = 0; i < items.length; i++) {
       if (items[i].status !== "pending") continue;
       batchIndexRef.current = i;
-      const outPath = buildBatchOutputPath(items[i]);
+      const outPath = await buildBatchOutputPath(items[i]);
       setQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: "converting", progress: 0, outputPath: outPath } : item));
       await window.api.startConversion(buildConversionOpts(items[i].path, outPath));
       // Wait for done or error event — poll queue state
@@ -495,7 +514,29 @@ export default function App() {
           <span className={styles.dfw}>DOME FEST WEST</span>
           <span className={styles.toolName}>Fulldome Preview Converter</span>
         </span>
+        {systemInfo?.ok && systemInfo.encoder_label && (
+          <span
+            className={styles.encoderBadge}
+            title={`${systemInfo.encoder_label} — ${systemInfo.platform}`}
+            data-kind={systemInfo.encoder_kind}
+          >
+            {systemInfo.encoder_kind === "gpu" ? "⚡" : "▢"} {systemInfo.encoder_label}
+          </span>
+        )}
       </header>
+
+      {/* System health banner — shown if Python or FFmpeg is missing */}
+      {systemInfo && !systemInfo.ok && (
+        <div className={styles.healthBanner}>
+          <strong>Setup needed:</strong> {systemInfo.error || "System check failed."}
+        </div>
+      )}
+      {systemInfo?.ok && !systemInfo.ffmpeg_ok && (
+        <div className={styles.healthBanner}>
+          <strong>FFmpeg not found.</strong> Install FFmpeg 6+ and make sure it's on your PATH,
+          or place ffmpeg{platform === "win32" ? ".exe" : ""} in the app's bin/ folder.
+        </div>
+      )}
 
       <main className={styles.main}>
 

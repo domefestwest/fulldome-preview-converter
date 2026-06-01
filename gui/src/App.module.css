@@ -34,6 +34,36 @@
   text-transform: uppercase;
 }
 
+/* Encoder badge in title bar */
+.encoderBadge {
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.encoderBadge[data-kind="gpu"] {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 35%, var(--border));
+}
+
+/* Health banner — shown when FFmpeg/Python missing */
+.healthBanner {
+  background: color-mix(in srgb, var(--error) 14%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--error) 45%, var(--border));
+  color: var(--text);
+  padding: 10px 20px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.healthBanner strong { color: var(--error); margin-right: 6px; }
+
 .toolName {
   font-size: 13px;
   color: var(--text-muted);

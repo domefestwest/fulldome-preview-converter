@@ -8,11 +8,49 @@ Run with --help for full flag documentation.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Platform helpers — single source of truth for OS-specific behavior
+# ---------------------------------------------------------------------------
+
+class Platform:
+    """Centralized platform detection. All cross-platform branches go through here."""
+
+    @staticmethod
+    def is_windows() -> bool:
+        return sys.platform == "win32"
+
+    @staticmethod
+    def is_macos() -> bool:
+        return sys.platform == "darwin"
+
+    @staticmethod
+    def is_linux() -> bool:
+        return sys.platform.startswith("linux")
+
+    @staticmethod
+    def name() -> str:
+        if Platform.is_windows(): return "windows"
+        if Platform.is_macos():   return "macos"
+        if Platform.is_linux():   return "linux"
+        return sys.platform
+
+    @staticmethod
+    def null_device() -> str:
+        """FFmpeg null-output target — Windows uses NUL, Unix uses -."""
+        return "NUL" if Platform.is_windows() else "-"
+
+    @staticmethod
+    def exe_suffix() -> str:
+        """Executable extension on the current platform."""
+        return ".exe" if Platform.is_windows() else ""
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +173,12 @@ def find_font() -> str | None:
     return None
 
 
+def find_font_raw() -> str | None:
+    """Return the bundled font file path WITHOUT FFmpeg escaping (for display)."""
+    candidate = Path(__file__).parent / "bin" / "DejaVuSans.ttf"
+    return str(candidate) if candidate.exists() else None
+
+
 # ---------------------------------------------------------------------------
 # Hardware encoder detection
 # ---------------------------------------------------------------------------
@@ -160,8 +204,8 @@ def detect_best_encoder(ffmpeg: str) -> str:
     if _encoder_cache is not None:
         return _encoder_cache
 
-    platform = sys.platform  # "darwin", "win32", or "linux"
-    null_out  = "NUL" if platform == "win32" else "-"
+    platform = sys.platform  # raw value for the platforms set match
+    null_out = Platform.null_device()
 
     # Get list of compiled-in encoders
     try:
@@ -302,6 +346,77 @@ def probe_fps(input_path: str) -> str:
 
 def is_image(path: str) -> bool:
     return Path(path).suffix.lower() in SUPPORTED_IMAGE_EXTS
+
+
+# ---------------------------------------------------------------------------
+# System info — startup health check consumed by the GUI
+# ---------------------------------------------------------------------------
+
+def _probe_version(cmd_args: list[str]) -> str | None:
+    """Run a binary with version flag and return the first line of output, or None."""
+    try:
+        result = subprocess.run(cmd_args, capture_output=True, text=True, timeout=10)
+        out = (result.stdout or result.stderr).strip().split("\n")[0]
+        return out or None
+    except Exception:
+        return None
+
+
+def get_system_info() -> dict:
+    """
+    Probe the environment and return a structured report. Consumed by the GUI
+    at startup to surface missing dependencies and show which encoder is active.
+    """
+    ffmpeg = find_ffmpeg()
+    ffprobe = find_ffprobe()
+
+    # FFmpeg version (first line of `ffmpeg -version`)
+    ffmpeg_version = _probe_version([ffmpeg, "-version"])
+    ffmpeg_ok = ffmpeg_version is not None
+
+    # FFmpeg path: report resolved location if we can find it on disk,
+    # otherwise the literal command (PATH lookup at runtime)
+    ffmpeg_path = ffmpeg if Path(ffmpeg).exists() else f"(PATH: {ffmpeg})"
+
+    # Encoder detection — skip if ffmpeg is missing
+    encoder = detect_best_encoder(ffmpeg) if ffmpeg_ok else None
+
+    gpu_encoders = {
+        "h264_videotoolbox", "h264_nvenc", "h264_amf",
+        "h264_vaapi", "h264_qsv",
+    }
+    encoder_kind = (
+        "gpu" if encoder in gpu_encoders
+        else "cpu" if encoder == "libx264"
+        else None
+    )
+
+    # Human-readable encoder name
+    encoder_labels = {
+        "h264_videotoolbox": "VideoToolbox",
+        "h264_nvenc":        "NVENC (NVIDIA)",
+        "h264_amf":          "AMF (AMD)",
+        "h264_vaapi":        "VAAPI",
+        "h264_qsv":          "Quick Sync (Intel)",
+        "libx264":           "libx264 (CPU)",
+    }
+    encoder_label = encoder_labels.get(encoder, encoder or "unknown")
+
+    font_path = find_font_raw()
+
+    return {
+        "platform":       Platform.name(),
+        "python":         f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "ffmpeg_ok":      ffmpeg_ok,
+        "ffmpeg_version": ffmpeg_version,
+        "ffmpeg_path":    ffmpeg_path,
+        "ffprobe_ok":     _probe_version([ffprobe, "-version"]) is not None,
+        "encoder":        encoder,
+        "encoder_label":  encoder_label,
+        "encoder_kind":   encoder_kind,
+        "font_bundled":   font_path is not None,
+        "font_path":      font_path,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -733,8 +848,10 @@ Examples:
   python convert.py --input film.mp4 --watermark logo.png --watermark-corner br
 """,
     )
-    p.add_argument("--input",        required=True,
+    p.add_argument("--input",        default=None,
                    help="Path to source file (video or image)")
+    p.add_argument("--system-info",  action="store_true",
+                   help="Print platform/encoder/binary detection report as JSON and exit")
     p.add_argument("--output",       default=None,
                    help="Output path (default: <input>_<resolution>_preview.<ext>)")
     p.add_argument("--resolution",   default=DEFAULT_RESOLUTION, choices=["4k", "1080p"],
@@ -816,6 +933,14 @@ def default_output(input_path: str, resolution: str, crop_mode: str = "16:9") ->
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+
+    # Health check: print system info and exit. Used by the GUI at startup.
+    if args.system_info:
+        print(json.dumps(get_system_info(), indent=2))
+        return 0
+
+    if not args.input:
+        sys.exit("Error: --input is required (or pass --system-info)")
 
     validate_input(args.input)
 
