@@ -139,13 +139,15 @@ def find_font() -> str | None:
 # Hardware encoder detection
 # ---------------------------------------------------------------------------
 
-# Priority order: best GPU encoders first, software last
+# Priority order: best GPU encoders first, software last.
+# Each entry is (encoder_name, supported_platforms) where None means all platforms.
 HW_ENCODER_PRIORITY = [
-    "h264_videotoolbox",   # macOS (Apple Silicon + Intel) — always available on Mac
-    "h264_nvenc",          # NVIDIA (Windows / Linux)
-    "h264_amf",            # AMD (Windows)
-    "h264_qsv",            # Intel Quick Sync (Windows / Linux)
-    "libx264",             # software fallback
+    ("h264_videotoolbox", {"darwin"}),          # macOS only (Apple Silicon + Intel)
+    ("h264_nvenc",        {"win32", "linux"}),   # NVIDIA (Windows + Linux)
+    ("h264_amf",          {"win32"}),            # AMD (Windows only — Linux uses VAAPI)
+    ("h264_vaapi",        {"linux"}),            # AMD/Intel GPU on Linux via VAAPI
+    ("h264_qsv",          {"win32", "linux"}),   # Intel Quick Sync (Windows + Linux)
+    ("libx264",           None),                 # software fallback (all platforms)
 ]
 
 # Module-level cache so we only probe once per process
@@ -157,6 +159,9 @@ def detect_best_encoder(ffmpeg: str) -> str:
     global _encoder_cache
     if _encoder_cache is not None:
         return _encoder_cache
+
+    platform = sys.platform  # "darwin", "win32", or "linux"
+    null_out  = "NUL" if platform == "win32" else "-"
 
     # Get list of compiled-in encoders
     try:
@@ -170,22 +175,34 @@ def detect_best_encoder(ffmpeg: str) -> str:
         return _encoder_cache
 
     # Test each candidate in priority order
-    for enc in HW_ENCODER_PRIORITY:
+    for enc, platforms in HW_ENCODER_PRIORITY:
+        # Skip encoders that don't apply to this platform
+        if platforms is not None and platform not in platforms:
+            continue
         if enc not in compiled:
             continue
         if enc == "libx264":
-            # Software encoder is always usable if compiled in
             _encoder_cache = "libx264"
             return _encoder_cache
-        # Verify the hardware encoder actually works with a tiny test encode
-        null_out = "NUL" if sys.platform == "win32" else "-"
+
+        # VAAPI probe requires the device flag
+        if enc == "h264_vaapi":
+            probe_cmd = [
+                ffmpeg, "-hide_banner", "-loglevel", "error",
+                "-vaapi_device", "/dev/dri/renderD128",
+                "-f", "lavfi", "-i", "color=black:s=64x64:d=0.04",
+                "-vf", "format=nv12,hwupload",
+                "-c:v", "h264_vaapi", "-f", "null", null_out,
+            ]
+        else:
+            probe_cmd = [
+                ffmpeg, "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "color=black:s=64x64:d=0.04",
+                "-c:v", enc, "-f", "null", null_out,
+            ]
+
         try:
-            test = subprocess.run(
-                [ffmpeg, "-hide_banner", "-loglevel", "error",
-                 "-f", "lavfi", "-i", "color=black:s=64x64:d=0.04",
-                 "-c:v", enc, "-f", "null", null_out],
-                capture_output=True, timeout=10
-            )
+            test = subprocess.run(probe_cmd, capture_output=True, timeout=10)
             if test.returncode == 0:
                 _encoder_cache = enc
                 return _encoder_cache
@@ -204,8 +221,19 @@ def build_encoder_args(
     """
     Return FFmpeg encoder CLI args for the given encoder and quality setting.
     Each hardware encoder uses its own quality parameter equivalent to libx264 CRF.
+
+    Note: h264_vaapi requires additional setup (vaapi_device flag + hwupload in
+    the filtergraph) handled separately in run_conversion / build_filtergraph.
+    This function returns only the -c:v and quality/bitrate args.
     """
-    # Always start with pixel format for compatibility
+    # VAAPI uses a different pixel format — handled here, device/hwupload elsewhere
+    if encoder == "h264_vaapi":
+        if bitrate_kbps:
+            return ["-c:v", "h264_vaapi", "-b:v", f"{bitrate_kbps}k"]
+        # VAAPI constant quality: -qp 0-51 (same direction as CRF)
+        return ["-c:v", "h264_vaapi", "-qp", str(crf)]
+
+    # All other encoders: start with yuv420p pixel format for compatibility
     args = ["-pix_fmt", "yuv420p"]
 
     if bitrate_kbps:
@@ -229,7 +257,7 @@ def build_encoder_args(
         args += ["-c:v", encoder, "-preset", "p4", "-rc", "vbr", "-cq", str(crf)]
 
     elif encoder == "h264_amf":
-        # AMF uses constant QP mode
+        # AMF uses constant QP mode (Windows only)
         args += ["-c:v", encoder, "-quality", "quality",
                  "-rc", "cqp", "-qp_i", str(crf), "-qp_p", str(crf)]
 
@@ -558,8 +586,27 @@ def run_conversion(
             else:
                 duration = raw_dur - t_start
 
+    # --- Select encoder ---
+    ffmpeg_bin = find_ffmpeg()
+    encoder = detect_best_encoder(ffmpeg_bin) if hw_accel else "libx264"
+    use_vaapi = (encoder == "h264_vaapi")
+
+    # For VAAPI: append hwupload to the end of the filtergraph so frames are
+    # uploaded to the GPU right before encoding. This must happen after all
+    # software filters (scale, crop, overlay, drawtext, etc.) have run.
+    if use_vaapi:
+        if out_label:
+            filtergraph += f";[{out_label}]format=nv12,hwupload[vaapi_out]"
+            out_label = "vaapi_out"
+        else:
+            filtergraph += ",format=nv12,hwupload"
+
     # --- Build FFmpeg command ---
     cmd = [find_ffmpeg(), "-y"]
+
+    # VAAPI device must appear before any input flags
+    if use_vaapi:
+        cmd += ["-vaapi_device", "/dev/dri/renderD128"]
 
     if input_is_image:
         cmd += ["-loop", "1"]
@@ -586,13 +633,6 @@ def run_conversion(
         # Trim end: duration limit AFTER input
         if not input_is_image and trim_end and trim_end > (trim_start or 0.0):
             cmd += ["-t", str(trim_end - (trim_start or 0.0))]
-
-        # Select encoder: GPU if available and requested, else software
-        ffmpeg_bin = find_ffmpeg()
-        if hw_accel:
-            encoder = detect_best_encoder(ffmpeg_bin)
-        else:
-            encoder = "libx264"
 
         cmd += build_encoder_args(encoder, crf, bitrate_kbps)
 
@@ -798,7 +838,8 @@ def main(argv=None) -> int:
 
     hw_accel = not args.no_hw_accel
     encoder = detect_best_encoder(find_ffmpeg()) if hw_accel else "libx264"
-    hw_label = f"{encoder} (GPU)" if encoder != "libx264" else "libx264 (CPU)"
+    gpu_encoders = {"h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_vaapi", "h264_qsv"}
+    hw_label = f"{encoder} (GPU)" if encoder in gpu_encoders else "libx264 (CPU)"
 
     print(f"Input:      {args.input}")
     print(f"Output:     {output}")

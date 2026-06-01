@@ -754,7 +754,7 @@ export default function App() {
                         {settings.hwAccel ? "On" : "Off"}
                       </button>
                     </div>
-                    <p className={styles.hint}>Mac: VideoToolbox · NVIDIA: NVENC · AMD: AMF · fallback: CPU</p>
+                    <p className={styles.hint}>Mac: VideoToolbox · NVIDIA: NVENC · AMD/Intel Linux: VAAPI · AMD Windows: AMF · Intel: QSV · fallback: CPU</p>
                   </div>
 
                   <div className={styles.field}>
