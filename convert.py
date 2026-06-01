@@ -102,6 +102,18 @@ def find_ffmpeg() -> str:
     return "ffmpeg"
 
 
+def find_ffprobe() -> str:
+    """Locate ffprobe alongside ffmpeg — handles .exe suffix on Windows."""
+    candidates = [
+        Path(__file__).parent / "bin" / "ffprobe",
+        Path(__file__).parent / "bin" / "ffprobe.exe",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return "ffprobe"
+
+
 # ---------------------------------------------------------------------------
 # Hardware encoder detection
 # ---------------------------------------------------------------------------
@@ -145,11 +157,12 @@ def detect_best_encoder(ffmpeg: str) -> str:
             _encoder_cache = "libx264"
             return _encoder_cache
         # Verify the hardware encoder actually works with a tiny test encode
+        null_out = "NUL" if sys.platform == "win32" else "-"
         try:
             test = subprocess.run(
                 [ffmpeg, "-hide_banner", "-loglevel", "error",
                  "-f", "lavfi", "-i", "color=black:s=64x64:d=0.04",
-                 "-c:v", enc, "-f", "null", "-"],
+                 "-c:v", enc, "-f", "null", null_out],
                 capture_output=True, timeout=10
             )
             if test.returncode == 0:
@@ -211,7 +224,7 @@ def build_encoder_args(
 
 
 def probe_duration(input_path: str) -> float | None:
-    ffprobe = find_ffmpeg().replace("ffmpeg", "ffprobe")
+    ffprobe = find_ffprobe()
     try:
         result = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
@@ -224,7 +237,7 @@ def probe_duration(input_path: str) -> float | None:
 
 
 def probe_fps(input_path: str) -> str:
-    ffprobe = find_ffmpeg().replace("ffmpeg", "ffprobe")
+    ffprobe = find_ffprobe()
     try:
         result = subprocess.run(
             [ffprobe, "-v", "error", "-select_streams", "v:0",
@@ -595,7 +608,7 @@ def run_conversion(
     last_pct = -1
 
     for line in proc.stderr:
-        line = line.rstrip()
+        line = line.rstrip().replace("\r", "")  # strip \r for Windows FFmpeg output
         if verbose:
             print(f"[ffmpeg] {line}", flush=True)
 

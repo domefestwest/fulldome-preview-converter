@@ -1,6 +1,6 @@
 {
   "name": "fulldome-preview-converter",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "description": "Fulldome fisheye to 16:9 preview converter for Dome Fest West",
   "main": "main.js",
   "scripts": {
@@ -30,9 +30,7 @@
     "files": [
       "dist/**/*",
       "main.js",
-      "preload.js",
-      "convert.py",
-      "bin/**/*"
+      "preload.js"
     ],
     "extraResources": [
       {
@@ -58,7 +56,9 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "runAfterFinish": true
     }
   }
 }

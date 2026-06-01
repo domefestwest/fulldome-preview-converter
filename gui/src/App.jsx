@@ -198,6 +198,7 @@ export default function App() {
   // Output path — recomputed from filename template
   useEffect(() => {
     if (!file) return;
+    const sep = file.path.includes("\\") ? "\\" : "/";
     const dir = file.path.replace(/[/\\][^/\\]+$/, "");
     const fileBase = file.name.replace(/\.[^.]+$/, "");
     const rendered = applyFilenameTemplate(settings.filenameTemplate, {
@@ -206,7 +207,7 @@ export default function App() {
       cropMode: settings.cropMode,
     });
     const ext = fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4";
-    setOutputPath(`${dir}/${rendered}${ext}`);
+    setOutputPath(`${dir}${sep}${rendered}${ext}`);
   }, [file, settings.resolution, settings.cropMode, fileType, settings.outputImageFormat, settings.filenameTemplate]);
 
   const set = (key) => (val) => setSettings((s) => ({ ...s, [key]: val }));
@@ -376,6 +377,7 @@ export default function App() {
   }
 
   function buildBatchOutputPath(item) {
+    const sep = item.path.includes("\\") ? "\\" : "/";
     const dir = item.path.replace(/[/\\][^/\\]+$/, "");
     const fileBase = item.name.replace(/\.[^.]+$/, "");
     const rendered = applyFilenameTemplate(settings.filenameTemplate, {
@@ -385,7 +387,7 @@ export default function App() {
     });
     const ft = getFileType(item.path);
     const ext = ft === "image" ? `.${settings.outputImageFormat}` : ".mp4";
-    return `${dir}/${rendered}${ext}`;
+    return `${dir}${sep}${rendered}${ext}`;
   }
 
   async function runBatch() {

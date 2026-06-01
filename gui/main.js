@@ -31,13 +31,19 @@ function findBinary(name) {
 }
 
 function findPython() {
-  for (const p of ["python3", "python"]) {
+  // On Windows, "python" is the standard command name; "python3" may open the
+  // Microsoft Store stub instead of a real interpreter. Try platform-preferred
+  // order and verify we get a real Python 3.x, not a stub.
+  const candidates = process.platform === "win32"
+    ? ["python", "python3"]
+    : ["python3", "python"];
+  for (const p of candidates) {
     try {
-      execFileSync(p, ["--version"], { stdio: "ignore" });
-      return p;
+      const out = execFileSync(p, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      if (/Python 3/.test(out)) return p;
     } catch {}
   }
-  return "python3";
+  return candidates[0];
 }
 
 function findConvertScript() {
@@ -393,7 +399,12 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
 
 ipcMain.handle("cancel-conversion", () => {
   if (activeConversion) {
-    activeConversion.kill("SIGTERM");
+    if (process.platform === "win32") {
+      // On Windows, kill the entire process tree (Python + FFmpeg child)
+      spawn("taskkill", ["/F", "/T", "/PID", String(activeConversion.pid)]);
+    } else {
+      activeConversion.kill("SIGTERM");
+    }
     activeConversion = null;
   }
 });
