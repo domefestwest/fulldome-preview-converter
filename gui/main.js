@@ -4,9 +4,12 @@ const {
   ipcMain,
   dialog,
   shell,
+  Notification,
+  nativeImage,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { spawn, execFileSync } = require("child_process");
 
 const isDev = process.env.NODE_ENV !== "production" && !app.isPackaged;
@@ -328,41 +331,16 @@ ipcMain.handle("system-info", async () => {
 
 let activeConversion = null;
 
-ipcMain.handle("start-conversion", async (_evt, opts) => {
+function buildConvertArgs(opts) {
   const {
-    inputPath,
-    outputPath,
-    resolution,
-    sweetSpot,
-    pipSize,
-    pipMargin,
-    pipPosition,
-    audio,
-    crf,
-    scale,
-    hPan,
-    pipEnabled,
-    bitrateKbps,
-    burninTitle,
-    burninFilename,
-    burninFramenumber,
-    burninCorner,
-    cropMode,
-    trimStart,
-    trimEnd,
-    slateTitle,
-    slateCreator,
-    slateYear,
-    watermarkPath,
-    watermarkCorner,
-    watermarkOpacity,
-    watermarkSize,
-    hwAccel,
+    inputPath, outputPath, resolution, sweetSpot, pipSize, pipMargin,
+    pipPosition, audio, crf, scale, hPan, pipEnabled, bitrateKbps,
+    burninTitle, burninFilename, burninFramenumber, burninCorner,
+    cropMode, trimStart, trimEnd, slateTitle, slateCreator, slateYear,
+    watermarkPath, watermarkCorner, watermarkOpacity, watermarkSize,
+    hwAccel, colorTag, loudnorm, posterFrame,
   } = opts;
-
-  const python = findPython();
   const script = findConvertScript();
-
   const args = [
     script,
     "--input",        inputPath,
@@ -375,48 +353,37 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     "--scale",        String(scale ?? 1.0),
     "--h-pan",        String(hPan ?? 50),
   ];
-
   if (pipEnabled === false) args.push("--no-pip");
-
-  // Quality: either CRF or manual bitrate
-  if (bitrateKbps) {
-    args.push("--bitrate", String(bitrateKbps));
-  } else {
-    args.push("--crf", String(crf ?? 18));
-  }
-
-  // Audio (not applicable for image inputs, but harmless to pass — convert.py ignores it)
+  if (bitrateKbps) args.push("--bitrate", String(bitrateKbps));
+  else args.push("--crf", String(crf ?? 18));
   if (audio) args.push("--audio", audio);
-
-  // Burn-in overlays
   if (burninTitle) args.push("--burnin-title", burninTitle);
   if (burninFilename) args.push("--burnin-filename");
   if (burninFramenumber) args.push("--burnin-framenumber");
   if (burninCorner) args.push("--burnin-corner", burninCorner);
-
-  // Crop mode
   if (cropMode) args.push("--crop-mode", cropMode);
-
-  // Trim
   if (trimStart && trimStart > 0) args.push("--trim-start", String(trimStart));
   if (trimEnd != null) args.push("--trim-end", String(trimEnd));
-
-  // Slate
   if (slateTitle) args.push("--slate-title", slateTitle);
   if (slateCreator) args.push("--slate-creator", slateCreator);
   if (slateYear) args.push("--slate-year", slateYear);
-
-  // Watermark
   if (watermarkPath) {
     args.push("--watermark", watermarkPath);
     args.push("--watermark-corner", watermarkCorner || "br");
     args.push("--watermark-opacity", String(watermarkOpacity ?? 80));
     args.push("--watermark-size", String(watermarkSize ?? 15));
   }
-
-  // GPU acceleration (default on — pass flag only to disable)
   if (hwAccel === false) args.push("--no-hw-accel");
+  if (colorTag) args.push("--color-tag", colorTag);
+  if (loudnorm) args.push("--loudnorm", loudnorm);
+  if (posterFrame) args.push("--poster-frame");
+  return args;
+}
 
+ipcMain.handle("start-conversion", async (_evt, opts) => {
+  const python = findPython();
+  const args = buildConvertArgs(opts);
+  const outputPath = opts.outputPath;
   const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;
 
@@ -439,6 +406,15 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     activeConversion = null;
     if (code === 0) {
       mainWindow?.webContents.send("conversion-done", { outputPath });
+      // Fire OS notification if window is not focused
+      try {
+        if (mainWindow && !mainWindow.isFocused() && Notification.isSupported()) {
+          new Notification({
+            title: "Conversion complete",
+            body: path.basename(outputPath),
+          }).show();
+        }
+      } catch {}
     } else {
       mainWindow?.webContents.send("conversion-error", {
         message: errorBuf || `Process exited with code ${code}`,
@@ -481,6 +457,53 @@ ipcMain.handle("browse-watermark", async () => {
   });
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];
+});
+
+// Temp output path for quick test renders
+ipcMain.handle("get-temp-output-path", () => {
+  return path.join(os.tmpdir(), `dfw-test-${Date.now()}.mp4`);
+});
+
+// Run convert.py --dry-run and return the FFmpeg command string
+ipcMain.handle("get-ffmpeg-command", async (_evt, opts) => {
+  const python = findPython();
+  const args = buildConvertArgs(opts);
+  args.push("--dry-run");
+  return new Promise((resolve) => {
+    const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.stderr.on("data", (d) => (err += d.toString()));
+    proc.on("close", (code) => {
+      if (code === 0) resolve({ ok: true, command: out.trim() });
+      else resolve({ ok: false, error: err || `exit ${code}` });
+    });
+    proc.on("error", (e) => resolve({ ok: false, error: e.message }));
+  });
+});
+
+// 16x16 transparent PNG placeholder for drag icon
+const DRAG_ICON_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAFklEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+  "base64"
+);
+
+ipcMain.on("start-file-drag", (event, filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return;
+    let icon;
+    const ext = path.extname(filePath).toLowerCase();
+    if (BROWSER_IMAGE_EXTS.has(ext)) {
+      icon = nativeImage.createFromPath(filePath).resize({ width: 64, height: 64 });
+    }
+    if (!icon || icon.isEmpty()) {
+      icon = nativeImage.createFromBuffer(DRAG_ICON_PNG);
+    }
+    event.sender.startDrag({ file: filePath, icon });
+  } catch (e) {
+    // Silent fail — drag isn't critical
+  }
 });
 
 ipcMain.handle("browse-files", async () => {

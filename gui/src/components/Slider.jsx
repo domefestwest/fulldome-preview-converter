@@ -1,6 +1,6 @@
 import styles from "./Slider.module.css";
 
-export default function Slider({ min, max, value, onChange }) {
+export default function Slider({ min, max, value, onChange, tooltip }) {
   const pct = ((value - min) / (max - min)) * 100;
   return (
     <div className={styles.wrapper}>
@@ -12,6 +12,7 @@ export default function Slider({ min, max, value, onChange }) {
         onChange={(e) => onChange(Number(e.target.value))}
         className={styles.slider}
         style={{ "--pct": `${pct}%` }}
+        title={tooltip || undefined}
       />
       <div className={styles.ticks}>
         <span>{min}</span>

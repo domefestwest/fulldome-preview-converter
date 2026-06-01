@@ -75,6 +75,67 @@ const DEFAULT_STATE = {
   filenameTemplate:  "{filename}_{resolution}_{cropmode}_preview",
   // Hardware acceleration
   hwAccel:           true,
+  // Color tag (Rec.709)
+  colorTagBt709:     true,
+  // Audio loudness normalization: "none" | "-23" | "-14"
+  loudnorm:          "none",
+  // Poster frame export
+  posterFrameEnabled: false,
+  // System notifications when conversion done
+  enableNotifications: true,
+};
+
+// Settings keys owned by each tab — used by the per-tab Reset button.
+const TAB_SETTINGS = {
+  framing: ["resolution", "cropMode", "sweetSpot", "hPan", "scale", "pipSize"],
+  pip:     ["pipEnabled", "pipSize", "pipMargin", "pipPosition"],
+  export:  [
+    "audio", "quality", "bitrateKbps", "hwAccel",
+    "burninEnabled", "burninTitle", "burninFilename", "burninFramenumber", "burninCorner",
+    "slateEnabled", "slateTitle", "slateCreator", "slateYear",
+    "watermarkEnabled", "watermarkPath", "watermarkCorner", "watermarkOpacity", "watermarkSize",
+    "outputImageFormat", "filenameTemplate",
+    "colorTagBt709", "loudnorm", "posterFrameEnabled", "enableNotifications",
+  ],
+};
+
+const BUILTIN_PRESETS = {
+  "🌟 Quick Teaser": {
+    cropMode: "9:16", trimStart: 0, trimEnd: 30,
+    watermarkEnabled: false, slateEnabled: true,
+    slateTitle: "", slateCreator: "", slateYear: "",
+  },
+  "🌟 Festival Submission": {
+    resolution: "4k", cropMode: "16:9", quality: "high",
+    hwAccel: true, colorTagBt709: true, loudnorm: "-23",
+    slateEnabled: true, slateTitle: "", slateCreator: "", slateYear: "",
+  },
+  "🌟 Social Reels": {
+    cropMode: "9:16", quality: "manual", bitrateKbps: 8000,
+    loudnorm: "-14",
+  },
+};
+
+// Social platform duration limits (seconds), highest priority = smallest limit
+const PLATFORM_LIMITS = [
+  { name: "Instagram Feed",     limit: 60  },
+  { name: "YouTube Shorts",     limit: 60  },
+  { name: "Instagram Reels",    limit: 90  },
+  { name: "Facebook Reels",     limit: 90  },
+  { name: "X (Twitter)",        limit: 140 },
+  { name: "TikTok",             limit: 600 },
+  { name: "LinkedIn video",     limit: 600 },
+];
+
+// Tooltips for sliders
+const TOOLTIPS = {
+  sweetSpot: "Crops the fulldome image vertically. 0% shows the top of the dome (zenith); 100% shows the bottom (horizon).",
+  hPan:      "When scale > 100%, controls left/right cropping position. 0% = left, 50% = center, 100% = right.",
+  scale:     "Zooms into the fulldome image before cropping. Useful for filling black corners or focusing on a region of interest.",
+  pipSize:   "Diameter of the Picture-in-Picture circle, in pixels.",
+  pipMargin: "Distance from the corner edge to the PiP circle, in pixels.",
+  wmOpacity: "Transparency of the logo overlay. 0% = invisible, 100% = solid.",
+  wmSize:    "Width of the logo overlay as a percentage of the output frame width.",
 };
 
 function loadSavedSettings() {
@@ -110,6 +171,58 @@ function applyFilenameTemplate(template, { filename, resolution, cropMode }) {
     .replace(/{date}/g, date);
 }
 
+function loadRecentFiles() {
+  try {
+    const r = JSON.parse(localStorage.getItem("dfw-recent-files") || "[]");
+    return Array.isArray(r) ? r : [];
+  } catch { return []; }
+}
+
+function estimateFileSizeMB(settings, durationSec, fileType) {
+  if (fileType === "image" || !durationSec || durationSec <= 0) return null;
+  const { w, h } = getOutputDims(settings.resolution, settings.cropMode);
+  const isManual = settings.quality === "manual";
+  let mbps;
+  if (isManual) {
+    mbps = settings.bitrateKbps / 1000;
+  } else {
+    const preset = { draft: 26, standard: 18, high: 12 }[settings.quality] ?? 18;
+    // Heuristic interpolation: anchors at 4K and 1080p
+    const points4k = [[12, 35], [18, 20], [26, 10]];
+    const points1080 = [[12, 12], [18, 6], [26, 3]];
+    function interp(points, crf) {
+      if (crf <= points[0][0]) return points[0][1];
+      if (crf >= points[points.length-1][0]) return points[points.length-1][1];
+      for (let i = 0; i < points.length-1; i++) {
+        const [x1,y1] = points[i], [x2,y2] = points[i+1];
+        if (crf >= x1 && crf <= x2) {
+          const t = (crf - x1) / (x2 - x1);
+          return y1 + t * (y2 - y1);
+        }
+      }
+      return points[points.length-1][1];
+    }
+    const mbps4k = interp(points4k, preset);
+    const mbps1080 = interp(points1080, preset);
+    const base = settings.resolution === "4k" ? mbps4k : mbps1080;
+    // Scale by area ratio (relative to native 16:9 for that resolution)
+    const nativeArea = settings.resolution === "4k" ? (3840 * 2160) : (1920 * 1080);
+    mbps = base * (w * h) / nativeArea;
+  }
+  const mb = mbps * durationSec / 8;
+  return mb;
+}
+
+function getPlatformWarning(durationSec) {
+  if (!durationSec || durationSec <= 60) return null;
+  // Find all platforms exceeded
+  const exceeded = PLATFORM_LIMITS.filter(p => durationSec > p.limit);
+  if (!exceeded.length) return null;
+  const minLimit = Math.min(...exceeded.map(p => p.limit));
+  const names = exceeded.filter(p => p.limit === minLimit).map(p => p.name).join(" & ");
+  return `⚠ Over ${names} (${minLimit}s)`;
+}
+
 export default function App() {
   const [file, setFile]                 = useState(null);
   const [fileType, setFileType]         = useState("video");
@@ -140,6 +253,27 @@ export default function App() {
   // System info (FFmpeg/Python/GPU detection from main process)
   const [systemInfo, setSystemInfo] = useState(null);
 
+  // Recent files
+  const [recentFiles, setRecentFiles] = useState(loadRecentFiles);
+  const [showRecent, setShowRecent]   = useState(false);
+
+  // Test render mode (uses isTesting to disable normal Convert button)
+  const [isTesting, setIsTesting] = useState(false);
+
+  // Help modal (keyboard shortcuts)
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Tab reset toast
+  const [tabResetToast, setTabResetToast] = useState("");
+
+  // Copy ffmpeg toast
+  const [copyToast, setCopyToast] = useState("");
+
+  // Last-used output dir (persisted in localStorage)
+  const [lastOutputDir, setLastOutputDir] = useState(() => {
+    try { return localStorage.getItem("dfw-last-output-dir") || ""; } catch { return ""; }
+  });
+
   const scrubTimerRef = useRef(null);
   const isElectron = typeof window.api !== "undefined";
   const platform   = window.api?.platform || "darwin";
@@ -152,6 +286,30 @@ export default function App() {
       setSystemInfo({ ok: false, error: String(err) });
     });
   }, [isElectron]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKey(e) {
+      const mod = e.metaKey || e.ctrlKey;
+      // Ignore when typing in inputs
+      const tag = (e.target?.tagName || "").toLowerCase();
+      const isTyping = tag === "input" || tag === "textarea" || tag === "select";
+      if (mod && e.key.toLowerCase() === "o" && !isTyping) {
+        e.preventDefault(); handleBrowse();
+      } else if (mod && e.key === "Enter") {
+        e.preventDefault();
+        if (file && status !== "converting") handleConvert();
+      } else if (mod && e.key.toLowerCase() === "t" && !isTyping) {
+        e.preventDefault(); handleTestRender();
+      } else if (e.key === "Escape") {
+        if (status === "converting") handleCancel();
+        else { setShowRecent(false); setShowHelp(false); }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, status, isTesting]);
 
   // Prevent Electron from navigating when files are dragged over non-target areas
   useEffect(() => {
@@ -263,6 +421,7 @@ export default function App() {
 
     setFile(info);
     setFrameLoading(false);
+    pushRecent(filePath, info.name);
   }
 
   function makeDemoFrame() {
@@ -304,42 +463,131 @@ export default function App() {
   async function handleBrowseOutput() {
     if (!isElectron) return;
     const p = await window.api.browseOutputDir(outputPath, fileType);
-    if (p) setOutputPath(p);
+    if (p) {
+      setOutputPath(p);
+      // Remember the directory for future loads
+      const dir = p.replace(/[/\\][^/\\]+$/, "");
+      setLastOutputDir(dir);
+      try { localStorage.setItem("dfw-last-output-dir", dir); } catch {}
+    }
   }
 
-  function buildConversionOpts(filePath, outPath) {
-    const preset   = CRF_PRESETS.find((p) => p.value === settings.quality);
-    const isManual = settings.quality === "manual";
+  function useLastOutputDir() {
+    if (!file || !lastOutputDir) return;
+    const fileBase = file.name.replace(/\.[^.]+$/, "");
+    const rendered = applyFilenameTemplate(settings.filenameTemplate, {
+      filename: fileBase, resolution: settings.resolution, cropMode: settings.cropMode,
+    });
+    const ext = fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4";
+    // Use forward slash; main.js can normalize if needed
+    const sep = lastOutputDir.includes("\\") ? "\\" : "/";
+    setOutputPath(`${lastOutputDir}${sep}${rendered}${ext}`);
+  }
+
+  function buildConversionOpts(filePath, outPath, overrides = {}) {
+    const merged  = { ...settings, ...overrides };
+    const preset   = CRF_PRESETS.find((p) => p.value === merged.quality);
+    const isManual = merged.quality === "manual";
+    const s = merged;
     return {
       inputPath:         filePath,
       outputPath:        outPath,
-      resolution:        settings.resolution,
-      cropMode:          settings.cropMode,
-      sweetSpot:         settings.sweetSpot,
-      pipSize:           settings.pipSize,
-      pipMargin:         settings.pipMargin,
-      pipPosition:       settings.pipPosition,
-      audio:             settings.audio,
+      resolution:        s.resolution,
+      cropMode:          s.cropMode,
+      sweetSpot:         s.sweetSpot,
+      pipSize:           s.pipSize,
+      pipMargin:         s.pipMargin,
+      pipPosition:       s.pipPosition,
+      audio:             s.audio,
       crf:               isManual ? null : (preset?.crf ?? 18),
-      scale:             settings.scale / 100,
-      hPan:              settings.hPan,
-      pipEnabled:        settings.pipEnabled,
-      bitrateKbps:       isManual ? settings.bitrateKbps : null,
-      burninTitle:       settings.burninEnabled ? settings.burninTitle : "",
-      burninFilename:    settings.burninEnabled && settings.burninFilename,
-      burninFramenumber: settings.burninEnabled && settings.burninFramenumber,
-      burninCorner:      settings.burninCorner,
-      trimStart:         settings.trimStart || 0,
-      trimEnd:           settings.trimEnd || null,
-      slateTitle:        settings.slateEnabled ? settings.slateTitle : "",
-      slateCreator:      settings.slateEnabled ? settings.slateCreator : "",
-      slateYear:         settings.slateEnabled ? settings.slateYear : "",
-      watermarkPath:     settings.watermarkEnabled ? settings.watermarkPath : "",
-      watermarkCorner:   settings.watermarkCorner,
-      watermarkOpacity:  settings.watermarkOpacity,
-      watermarkSize:     settings.watermarkSize,
-      hwAccel:           settings.hwAccel,
+      scale:             s.scale / 100,
+      hPan:              s.hPan,
+      pipEnabled:        s.pipEnabled,
+      bitrateKbps:       isManual ? s.bitrateKbps : null,
+      burninTitle:       s.burninEnabled ? s.burninTitle : "",
+      burninFilename:    s.burninEnabled && s.burninFilename,
+      burninFramenumber: s.burninEnabled && s.burninFramenumber,
+      burninCorner:      s.burninCorner,
+      trimStart:         s.trimStart || 0,
+      trimEnd:           s.trimEnd || null,
+      slateTitle:        s.slateEnabled ? s.slateTitle : "",
+      slateCreator:      s.slateEnabled ? s.slateCreator : "",
+      slateYear:         s.slateEnabled ? s.slateYear : "",
+      watermarkPath:     s.watermarkEnabled ? s.watermarkPath : "",
+      watermarkCorner:   s.watermarkCorner,
+      watermarkOpacity:  s.watermarkOpacity,
+      watermarkSize:     s.watermarkSize,
+      hwAccel:           s.hwAccel,
+      colorTag:          s.colorTagBt709 ? "bt709" : "none",
+      loudnorm:          (s.loudnorm && s.loudnorm !== "none") ? s.loudnorm : null,
+      posterFrame:       !!s.posterFrameEnabled,
     };
+  }
+
+  // Push file onto recent list
+  function pushRecent(p, name) {
+    setRecentFiles((prev) => {
+      const filtered = prev.filter((r) => r.path !== p);
+      const next = [{ path: p, name }, ...filtered].slice(0, 8);
+      try { localStorage.setItem("dfw-recent-files", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  async function handleTestRender() {
+    if (!file || status === "converting" || isTesting) return;
+    if (!isElectron) return;
+    if (fileType === "image") return;
+    const tmp = await window.api.getTempOutputPath();
+    setIsTesting(true);
+    setStatus("converting");
+    setProgress(0);
+    setStartTime(Date.now());
+    setErrorText("");
+    setDoneOutput("");
+    const opts = buildConversionOpts(file.path, tmp, { trimStart: 0, trimEnd: 5 });
+    await window.api.startConversion(opts);
+    // Hook into existing event listeners — when done, auto-open
+    // We'll handle via a one-shot listener
+    const offDone = window.api.onConversionDone(({ outputPath: op }) => {
+      window.api.openFile(op);
+      offDone();
+      offErr();
+      setIsTesting(false);
+    });
+    const offErr = window.api.onConversionError(() => {
+      offDone();
+      offErr();
+      setIsTesting(false);
+    });
+  }
+
+  function handleResetTab(tabId) {
+    const keys = TAB_SETTINGS[tabId] || [];
+    setSettings((s) => {
+      const next = { ...s };
+      for (const k of keys) next[k] = DEFAULT_STATE[k];
+      return next;
+    });
+    setTabResetToast("Tab reset");
+    setTimeout(() => setTabResetToast(""), 1500);
+  }
+
+  async function handleCopyFfmpegCommand() {
+    if (!file || !isElectron) return;
+    const opts = buildConversionOpts(file.path, outputPath);
+    const result = await window.api.getFfmpegCommand(opts);
+    if (result?.ok) {
+      try {
+        await navigator.clipboard.writeText(result.command);
+        setCopyToast("Copied!");
+      } catch {
+        setCopyToast("Copy failed");
+      }
+    } else {
+      setCopyToast("Error");
+    }
+    setTimeout(() => setCopyToast(""), 1500);
   }
 
   async function handleConvert() {
@@ -448,9 +696,11 @@ export default function App() {
   function handleLoadPreset(name) {
     setActivePreset(name);
     if (!name) return;
-    const preset = presets[name];
+    const preset = BUILTIN_PRESETS[name] || presets[name];
     if (preset) setSettings({ ...DEFAULT_STATE, ...preset });
   }
+
+  const isBuiltinPreset = activePreset && Object.prototype.hasOwnProperty.call(BUILTIN_PRESETS, activePreset);
 
   function handleDeletePreset() {
     if (!activePreset) return;
@@ -499,6 +749,13 @@ export default function App() {
   const slateBarH = hasSlate ? Math.round(outDims.h * 0.10) : 0;
   const finalDims = { w: outDims.w, h: outDims.h + slateBarH };
 
+  // File size estimate
+  const effectiveDuration = fileType === "image"
+    ? null
+    : ((settings.trimEnd ?? fileDuration ?? 0) - (settings.trimStart ?? 0));
+  const sizeEstimateMB = estimateFileSizeMB(settings, effectiveDuration, fileType);
+  const platformWarning = getPlatformWarning(effectiveDuration);
+
   // Live filename preview
   const fileBase = file ? file.name.replace(/\.[^.]+$/, "") : "filename";
   const previewFilename = applyFilenameTemplate(settings.filenameTemplate, {
@@ -523,7 +780,32 @@ export default function App() {
             {systemInfo.encoder_kind === "gpu" ? "⚡" : "▢"} {systemInfo.encoder_label}
           </span>
         )}
+        <button
+          className={styles.helpBtn}
+          onClick={() => setShowHelp(true)}
+          title="Keyboard shortcuts"
+          aria-label="Show keyboard shortcuts"
+        >
+          ?
+        </button>
       </header>
+
+      {showHelp && (
+        <div className={styles.modalBackdrop} onClick={() => setShowHelp(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <strong>Keyboard Shortcuts</strong>
+              <button className={styles.btnGhost} onClick={() => setShowHelp(false)}>Close</button>
+            </div>
+            <div className={styles.shortcutList}>
+              <div><kbd>⌘/Ctrl</kbd> + <kbd>O</kbd> — Open file</div>
+              <div><kbd>⌘/Ctrl</kbd> + <kbd>Enter</kbd> — Convert</div>
+              <div><kbd>⌘/Ctrl</kbd> + <kbd>T</kbd> — Test render (5s sample)</div>
+              <div><kbd>Esc</kbd> — Cancel / close menus</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* System health banner — shown if Python or FFmpeg is missing */}
       {systemInfo && !systemInfo.ok && (
@@ -540,7 +822,7 @@ export default function App() {
 
       <main className={styles.main}>
 
-        {/* Batch mode toggle */}
+        {/* Batch mode toggle + Recent files */}
         <div className={styles.batchToggleRow}>
           <button
             className={batchMode ? styles.toggleOn : styles.toggleOff}
@@ -552,6 +834,31 @@ export default function App() {
             <span className={styles.hint} style={{ marginLeft: 8 }}>
               Add multiple files to convert with the same settings
             </span>
+          )}
+          {recentFiles.length > 0 && (
+            <div className={styles.recentWrapper}>
+              <button
+                className={styles.btnGhost}
+                onClick={() => setShowRecent((v) => !v)}
+                title="Recent files"
+              >
+                Recent ▾
+              </button>
+              {showRecent && (
+                <div className={styles.recentMenu}>
+                  {recentFiles.map((r) => (
+                    <button
+                      key={r.path}
+                      className={styles.recentItem}
+                      onClick={() => { setShowRecent(false); handleFileDrop(r.path); }}
+                      title={r.path}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -649,12 +956,21 @@ export default function App() {
             onChange={(e) => handleLoadPreset(e.target.value)}
           >
             <option value="">— Default —</option>
-            {Object.keys(presets).map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
+            <optgroup label="Built-in">
+              {Object.keys(BUILTIN_PRESETS).map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </optgroup>
+            {Object.keys(presets).length > 0 && (
+              <optgroup label="Your Presets">
+                {Object.keys(presets).map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <button className={styles.btnGhost} onClick={handleSavePreset}>Save</button>
-          <button className={styles.btnGhost} onClick={handleDeletePreset} disabled={!activePreset}>Delete</button>
+          <button className={styles.btnGhost} onClick={handleDeletePreset} disabled={!activePreset || isBuiltinPreset}>Delete</button>
           <button className={styles.btnGhost} onClick={handleExportPresets} title="Export presets as JSON">⬇ Export</button>
           <label className={styles.btnGhost} style={{ cursor: "pointer" }} title="Import presets from JSON">
             ⬆ Import
@@ -680,6 +996,17 @@ export default function App() {
 
           <div className={styles.tabContent}>
 
+            <div className={styles.tabResetRow}>
+              <button
+                className={styles.tabResetBtn}
+                onClick={() => handleResetTab(activeTab)}
+                title="Reset this tab's settings to defaults"
+              >
+                ↺ Reset
+              </button>
+              {tabResetToast && <span className={styles.tabResetToast}>{tabResetToast}</span>}
+            </div>
+
             {activeTab === "framing" && (
               <div className={styles.tabGrid}>
                 {/* Left column: position controls */}
@@ -689,7 +1016,7 @@ export default function App() {
                       Vertical Position
                       <span className={styles.numBadge}>{settings.sweetSpot}%</span>
                     </label>
-                    <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} />
+                    <Slider min={0} max={100} value={settings.sweetSpot} onChange={set("sweetSpot")} tooltip={TOOLTIPS.sweetSpot} />
                     <p className={styles.hint}>0% = top of dome · 100% = bottom</p>
                   </div>
                   <div className={styles.field}>
@@ -697,7 +1024,7 @@ export default function App() {
                       Horizontal Position
                       <span className={styles.numBadge}>{settings.hPan}%</span>
                     </label>
-                    <Slider min={0} max={100} value={settings.hPan} onChange={set("hPan")} />
+                    <Slider min={0} max={100} value={settings.hPan} onChange={set("hPan")} tooltip={TOOLTIPS.hPan} />
                     <p className={styles.hint}>0% = left · 50% = center · 100% = right</p>
                   </div>
                 </div>
@@ -716,7 +1043,7 @@ export default function App() {
                       Scale
                       <span className={styles.numBadge}>{settings.scale}%</span>
                     </label>
-                    <Slider min={100} max={400} value={settings.scale} onChange={set("scale")} />
+                    <Slider min={100} max={400} value={settings.scale} onChange={set("scale")} tooltip={TOOLTIPS.scale} />
                     <p className={styles.hint}>Zoom in to fill black corners</p>
                   </div>
                 </div>
@@ -750,7 +1077,7 @@ export default function App() {
                           Size
                           <span className={styles.numBadge}>{settings.pipSize}px</span>
                         </label>
-                        <Slider min={120} max={PIP_MAX[settings.resolution]} value={settings.pipSize} onChange={set("pipSize")} />
+                        <Slider min={120} max={PIP_MAX[settings.resolution]} value={settings.pipSize} onChange={set("pipSize")} tooltip={TOOLTIPS.pipSize} />
                         <p className={styles.hint}>Default: {AUTO_PIP[settings.resolution]}px</p>
                       </div>
                       <div className={styles.field}>
@@ -758,7 +1085,7 @@ export default function App() {
                           Padding
                           <span className={styles.numBadge}>{settings.pipMargin}px</span>
                         </label>
-                        <Slider min={0} max={300} value={settings.pipMargin} onChange={set("pipMargin")} />
+                        <Slider min={0} max={300} value={settings.pipMargin} onChange={set("pipMargin")} tooltip={TOOLTIPS.pipMargin} />
                       </div>
                     </div>
                   </div>
@@ -783,6 +1110,48 @@ export default function App() {
                       />
                     </div>
                   )}
+                  {fileType === "video" && (
+                    <div className={styles.field}>
+                      <label className={styles.fieldLabel}>Loudness Normalization</label>
+                      <ToggleGroup
+                        options={[
+                          { value: "none", label: "Off" },
+                          { value: "-23",  label: "-23 LUFS (Festival)" },
+                          { value: "-14",  label: "-14 LUFS (Streaming)" },
+                        ]}
+                        value={settings.loudnorm}
+                        onChange={set("loudnorm")}
+                      />
+                    </div>
+                  )}
+                  {fileType === "video" && (
+                    <div className={styles.field}>
+                      <div className={styles.burnInHeader}>
+                        <label className={styles.fieldLabel} style={{ margin: 0 }}>Color Tag (Rec.709)</label>
+                        <button
+                          className={settings.colorTagBt709 ? styles.toggleOn : styles.toggleOff}
+                          onClick={() => set("colorTagBt709")(!settings.colorTagBt709)}
+                          aria-pressed={settings.colorTagBt709}
+                        >
+                          {settings.colorTagBt709 ? "On" : "Off"}
+                        </button>
+                      </div>
+                      <p className={styles.hint}>Prevents washed-out playback in some players</p>
+                    </div>
+                  )}
+                  <div className={styles.field}>
+                    <div className={styles.burnInHeader}>
+                      <label className={styles.fieldLabel} style={{ margin: 0 }}>Notify when done</label>
+                      <button
+                        className={settings.enableNotifications ? styles.toggleOn : styles.toggleOff}
+                        onClick={() => set("enableNotifications")(!settings.enableNotifications)}
+                        aria-pressed={settings.enableNotifications}
+                      >
+                        {settings.enableNotifications ? "On" : "Off"}
+                      </button>
+                    </div>
+                    <p className={styles.hint}>System notification when conversion completes in background</p>
+                  </div>
                   <div className={styles.field}>
                     <div className={styles.burnInHeader}>
                       <label className={styles.fieldLabel} style={{ margin: 0 }}>GPU Acceleration</label>
@@ -851,6 +1220,27 @@ export default function App() {
                     <p className={styles.filenamePreview}>
                       → {previewFilename}{fileType === "image" ? `.${settings.outputImageFormat}` : ".mp4"}
                     </p>
+                    {fileType === "video" && (
+                      <label className={styles.burnInCheck} style={{ marginTop: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={settings.posterFrameEnabled}
+                          onChange={(e) => set("posterFrameEnabled")(e.target.checked)}
+                        />
+                        Also export first frame as JPG poster
+                      </label>
+                    )}
+                    <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        className={styles.btnGhost}
+                        onClick={handleCopyFfmpegCommand}
+                        disabled={!file}
+                        title="Copy the FFmpeg command to clipboard"
+                      >
+                        📋 Copy FFmpeg command
+                      </button>
+                      {copyToast && <span className={styles.hint} style={{ color: "var(--success)" }}>{copyToast}</span>}
+                    </div>
                   </div>
                 </div>
 
@@ -969,13 +1359,13 @@ export default function App() {
                           <label className={styles.burnInLabel}>
                             Opacity: {settings.watermarkOpacity}%
                           </label>
-                          <Slider min={0} max={100} value={settings.watermarkOpacity} onChange={set("watermarkOpacity")} />
+                          <Slider min={0} max={100} value={settings.watermarkOpacity} onChange={set("watermarkOpacity")} tooltip={TOOLTIPS.wmOpacity} />
                         </div>
                         <div className={styles.burnInRow}>
                           <label className={styles.burnInLabel}>
                             Size: {settings.watermarkSize}% of width
                           </label>
-                          <Slider min={5} max={50} value={settings.watermarkSize} onChange={set("watermarkSize")} />
+                          <Slider min={5} max={50} value={settings.watermarkSize} onChange={set("watermarkSize")} tooltip={TOOLTIPS.wmSize} />
                         </div>
                       </div>
                     )}
@@ -1002,13 +1392,56 @@ export default function App() {
           </div>
         </div>
 
-        {/* Convert / Cancel */}
+        {/* Platform duration warning */}
+        {!batchMode && platformWarning && (
+          <div className={styles.platformWarning}>{platformWarning}</div>
+        )}
+
+        {/* Last-output-dir chip */}
+        {!batchMode && file && lastOutputDir && (
+          (() => {
+            const sourceDir = file.path.replace(/[/\\][^/\\]+$/, "");
+            const outDir = outputPath.replace(/[/\\][^/\\]+$/, "");
+            if (lastOutputDir !== sourceDir && lastOutputDir !== outDir) {
+              return (
+                <div className={styles.lastDirChip}>
+                  Last saved to: <span className={styles.lastDirPath}>{lastOutputDir}</span>
+                  <button className={styles.btnGhost} onClick={useLastOutputDir}>Use</button>
+                </div>
+              );
+            }
+            return null;
+          })()
+        )}
+
+        {/* Convert / Cancel + Test render */}
         {!batchMode && (
           <div className={styles.actions}>
             {status !== "converting" ? (
-              <button className={styles.btnConvert} disabled={!file} onClick={handleConvert}>
-                Convert
-              </button>
+              <>
+                <button className={styles.btnConvert} disabled={!file} onClick={handleConvert}>
+                  Convert
+                </button>
+                {fileType === "video" && (
+                  <button
+                    className={styles.btnGhost}
+                    disabled={!file || isTesting}
+                    onClick={handleTestRender}
+                    title="Render a 5-second sample (⌘/Ctrl+T)"
+                    style={{ marginLeft: 10 }}
+                  >
+                    Test Render
+                  </button>
+                )}
+                {sizeEstimateMB != null && (
+                  <span className={styles.sizeEstimate} title="Estimated output file size">
+                    ≈ {sizeEstimateMB >= 1024 ? `${(sizeEstimateMB / 1024).toFixed(1)} GB` : `${Math.round(sizeEstimateMB)} MB`}
+                  </span>
+                )}
+                {fileType === "video" && effectiveDuration && sizeEstimateMB == null && (
+                  <span className={styles.sizeEstimate}>≈ ?</span>
+                )}
+              </>
             ) : (
               <button className={styles.btnCancel} onClick={handleCancel}>Cancel</button>
             )}
@@ -1022,7 +1455,18 @@ export default function App() {
         {!batchMode && status === "done" && (
           <div className={styles.resultSuccess}>
             <span className={styles.successIcon}>✓</span>
-            <span className={styles.resultPath}>{doneOutput}</span>
+            <span
+              className={styles.resultPath}
+              draggable={isElectron}
+              onDragStart={(e) => {
+                if (!isElectron) return;
+                e.preventDefault();
+                window.api.startFileDrag(doneOutput);
+              }}
+              title="Drag to share with another app"
+            >
+              ⇅ {doneOutput}
+            </span>
             <div className={styles.resultActions}>
               <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFile(doneOutput)}>Open File</button>
               <button className={styles.btnGhost} onClick={() => isElectron && window.api.openFolder(doneOutput)}>{revealLabel}</button>

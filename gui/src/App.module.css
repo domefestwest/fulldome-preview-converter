@@ -588,3 +588,162 @@
 }
 .btnConvertSmall:hover:not(:disabled) { background: var(--gold); color: #1a1a1a; }
 .btnConvertSmall:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ---- Help button + modal ---- */
+.helpBtn {
+  -webkit-app-region: no-drag;
+  margin-left: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.helpBtn:hover { color: var(--gold); border-color: var(--gold); }
+
+.modalBackdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modalCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  min-width: 320px;
+  max-width: 480px;
+}
+.modalHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+  color: var(--text);
+}
+.shortcutList {
+  display: flex; flex-direction: column; gap: 8px;
+  font-size: 13px; color: var(--text);
+}
+.shortcutList kbd {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--gold);
+}
+
+/* ---- Tab reset ---- */
+.tabResetRow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tabResetBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+.tabResetBtn:hover { color: var(--orange); }
+.tabResetToast {
+  font-size: 11px;
+  color: var(--success);
+}
+
+/* ---- Recent files dropdown ---- */
+.recentWrapper {
+  position: relative;
+  margin-left: auto;
+}
+.recentMenu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-width: 220px;
+  max-width: 360px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 50;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.recentItem {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recentItem:hover { background: var(--surface2); color: var(--gold); }
+
+/* ---- File size estimate ---- */
+.sizeEstimate {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  align-self: center;
+}
+
+/* ---- Platform warning ---- */
+.platformWarning {
+  background: color-mix(in srgb, var(--gold) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--border));
+  color: var(--gold);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---- Last output dir chip ---- */
+.lastDirChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.lastDirPath {
+  color: var(--gold);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Make actions a flex row */
+.actions { gap: 0; align-items: center; flex-wrap: wrap; }
+
+/* Make the success path span draggable */
+.resultPath { cursor: grab; }
+.resultPath:active { cursor: grabbing; }

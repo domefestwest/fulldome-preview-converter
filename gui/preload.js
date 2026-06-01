@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld("api", {
   cancelConversion: () => ipcRenderer.invoke("cancel-conversion"),
   browseWatermark: () => ipcRenderer.invoke("browse-watermark"),
   browseFiles: () => ipcRenderer.invoke("browse-files"),
+  getTempOutputPath: () => ipcRenderer.invoke("get-temp-output-path"),
+  getFfmpegCommand: (opts) => ipcRenderer.invoke("get-ffmpeg-command", opts),
+  startFileDrag: (filePath) => ipcRenderer.send("start-file-drag", filePath),
 
   // Progress / events from main → renderer
   onProgress: (cb) => {

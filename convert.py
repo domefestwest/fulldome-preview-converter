@@ -613,10 +613,20 @@ def _esc(text: str) -> str:
     return text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
 
 
-def build_audio_args(mode: str) -> list[str]:
+def build_audio_args(mode: str, loudnorm: str | None = None) -> list[str]:
+    # Loudnorm requires re-encode — force AAC stereo regardless of mode
+    if loudnorm:
+        return ["-c:a", "aac", "-ac", "2", "-af", f"loudnorm=I={loudnorm}:TP=-1.5:LRA=11"]
     if mode == "stereo":
         return ["-c:a", "aac", "-ac", "2"]
     return ["-c:a", "copy"]
+
+
+def build_color_tag_args(color_tag: str) -> list[str]:
+    """Append BT.709 color metadata to prevent washed-out playback."""
+    if color_tag == "bt709":
+        return ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -653,6 +663,10 @@ def run_conversion(
     watermark_opacity: int = 80,
     watermark_size: int = 15,
     hw_accel: bool = True,
+    color_tag: str = "bt709",
+    loudnorm: str | None = None,
+    poster_frame: bool = False,
+    dry_run: bool = False,
 ) -> int:
     out_w, out_h = get_output_dims(resolution, crop_mode)
 
@@ -750,12 +764,13 @@ def run_conversion(
             cmd += ["-t", str(trim_end - (trim_start or 0.0))]
 
         cmd += build_encoder_args(encoder, crf, bitrate_kbps)
+        cmd += build_color_tag_args(color_tag)
 
         if not input_is_image and not out_label:
-            cmd += build_audio_args(audio)
+            cmd += build_audio_args(audio, loudnorm)
         elif not input_is_image:
             cmd += ["-map", "0:a?"]
-            cmd += build_audio_args(audio)
+            cmd += build_audio_args(audio, loudnorm)
 
         if input_is_image:
             cmd += ["-t", "1"]  # 1-second still video
@@ -763,6 +778,11 @@ def run_conversion(
         cmd += ["-progress", "pipe:2"]
 
     cmd.append(output_path)
+
+    if dry_run:
+        # Print only the command, nothing else, then exit successfully
+        print(' '.join(cmd))
+        return 0
 
     if verbose:
         print(f"[cmd] {' '.join(cmd)}\n", flush=True)
@@ -817,6 +837,23 @@ def run_conversion(
     if proc.returncode != 0:
         print("\n[FFmpeg error output]", file=sys.stderr)
         print("\n".join(error_lines[-40:]), file=sys.stderr)
+        return proc.returncode
+
+    # Poster frame: extract first frame as JPG
+    if poster_frame and not output_is_image and not input_is_image:
+        poster_path = str(Path(output_path).with_suffix("")) + "_poster.jpg"
+        poster_cmd = [
+            find_ffmpeg(), "-y",
+            "-i", output_path,
+            "-frames:v", "1",
+            "-q:v", "2",
+            poster_path,
+        ]
+        try:
+            subprocess.run(poster_cmd, capture_output=True, timeout=60)
+            print(f"Poster → {poster_path}")
+        except Exception as e:
+            print(f"Warning: poster frame extraction failed: {e}", file=sys.stderr)
 
     return proc.returncode
 
@@ -906,6 +943,14 @@ Examples:
                    help="Watermark width as %% of output width (default: 15)")
     p.add_argument("--no-hw-accel", action="store_true",
                    help="Force software (libx264) encoding, disabling GPU acceleration")
+    p.add_argument("--color-tag", default="bt709", choices=["bt709", "none"],
+                   help="Tag output with Rec.709 color metadata (default: bt709)")
+    p.add_argument("--loudnorm", default=None, choices=["-23", "-14"],
+                   help="Audio loudness normalization target in LUFS")
+    p.add_argument("--poster-frame", action="store_true",
+                   help="After encoding video, extract first frame as <output>_poster.jpg")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Print the FFmpeg command that would run and exit (no encoding)")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="Print FFmpeg command and raw output")
     return p.parse_args(argv)
@@ -966,6 +1011,25 @@ def main(argv=None) -> int:
     gpu_encoders = {"h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_vaapi", "h264_qsv"}
     hw_label = f"{encoder} (GPU)" if encoder in gpu_encoders else "libx264 (CPU)"
 
+    # Dry-run: skip all the human-readable header output
+    if args.dry_run:
+        return run_conversion(
+            input_path=args.input, output_path=output, resolution=args.resolution,
+            sweet_spot=args.sweet_spot, pip_size=pip_sz, pip_margin=args.pip_margin,
+            pip_pos=args.pip_position, audio=args.audio, crf=args.crf,
+            bitrate_kbps=args.bitrate, scale=args.scale, h_pan=args.h_pan,
+            pip_enabled=not args.no_pip, burnin_title=args.burnin_title,
+            burnin_filename=Path(args.input).name if args.burnin_filename else None,
+            burnin_framenumber=args.burnin_framenumber, burnin_corner=args.burnin_corner,
+            verbose=False, crop_mode=args.crop_mode, trim_start=args.trim_start,
+            trim_end=args.trim_end, slate_title=args.slate_title,
+            slate_creator=args.slate_creator, slate_year=args.slate_year,
+            watermark_path=args.watermark, watermark_corner=args.watermark_corner,
+            watermark_opacity=args.watermark_opacity, watermark_size=args.watermark_size,
+            hw_accel=hw_accel, color_tag=args.color_tag, loudnorm=args.loudnorm,
+            poster_frame=args.poster_frame, dry_run=True,
+        )
+
     print(f"Input:      {args.input}")
     print(f"Output:     {output}")
     print(f"Resolution: {args.resolution} ({out_w}×{out_h})  Crop: {args.crop_mode}")
@@ -1020,6 +1084,9 @@ def main(argv=None) -> int:
         watermark_opacity  = args.watermark_opacity,
         watermark_size     = args.watermark_size,
         hw_accel           = hw_accel,
+        color_tag          = args.color_tag,
+        loudnorm           = args.loudnorm,
+        poster_frame       = args.poster_frame,
     )
 
     if rc == 0:
