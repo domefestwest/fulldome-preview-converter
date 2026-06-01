@@ -114,6 +114,27 @@ def find_ffprobe() -> str:
     return "ffprobe"
 
 
+def find_font() -> str | None:
+    """
+    Return the bundled DejaVuSans.ttf path, pre-escaped for FFmpeg filtergraph
+    syntax, or None if not found (falls back to font='Arial').
+
+    Escaping rules for FFmpeg drawtext fontfile option:
+      - Use forward slashes on all platforms (FFmpeg accepts them on Windows)
+      - Escape spaces as backslash-space (FFmpeg filtergraph treats bare spaces as separators)
+      - Escape colons as backslash-colon (needed for Windows drive letters like C:/)
+      - Escape single quotes as '\'' (filtergraph meta-character)
+    """
+    candidate = Path(__file__).parent / "bin" / "DejaVuSans.ttf"
+    if candidate.exists():
+        path = str(candidate).replace("\\", "/")   # normalise to forward slashes
+        path = path.replace(":", "\\:")             # Windows drive letter e.g. C\:/
+        path = path.replace("'", "\\'")             # single-quote escape
+        path = path.replace(" ", "\\ ")             # space escape (most common issue)
+        return path
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Hardware encoder detection
 # ---------------------------------------------------------------------------
@@ -288,6 +309,12 @@ def build_filtergraph(
     Returns (filtergraph_string, output_label_or_None).
     If output_label is not None, caller must pass -map [output_label] to FFmpeg.
     """
+    # Resolve font — prefer bundled file for consistent cross-platform rendering.
+    # fontfile= takes precedence over font= in FFmpeg and bypasses fontconfig/GDI.
+    font_path = find_font()
+    # No surrounding quotes — path is already escaped for filtergraph syntax
+    font_arg = f"fontfile={font_path}" if font_path else "font='Arial'"
+
     # For 9:16 and 1:1 crop modes out_width may equal or be less than out_height.
     # The fisheye source is square; scale_dim is based on the LARGER of out_w/out_h
     # so we always have enough source pixels to fill the output frame.
@@ -333,7 +360,7 @@ def build_filtergraph(
         y_expr = f"h-text_h-{y_offset}"
         text_expr = f"'Frame\\: %{{n}}'" if kind == "framenumber" else f"'{val}'"
         drawtext_filters.append(
-            f"drawtext=text={text_expr}:font='Arial':"
+            f"drawtext=text={text_expr}:{font_arg}:"
             f"fontsize={fontsize}:fontcolor=white:borderw=2:bordercolor=black@0.75:"
             f"x={x_expr}:y={y_expr}"
         )
@@ -378,7 +405,7 @@ def build_filtergraph(
         # Title centered
         if slate_title:
             parts.append(
-                f"[{cur}]drawtext=text='{_esc(slate_title)}':font='Arial':"
+                f"[{cur}]drawtext=text='{_esc(slate_title)}':{font_arg}:"
                 f"fontsize=36:fontcolor=white:borderw=2:bordercolor=black@0.6:"
                 f"x=(w-text_w)/2:y={out_height}+({bar_h}-text_h)/2[slate0]"
             )
@@ -386,16 +413,16 @@ def build_filtergraph(
         # Creator bottom-left of bar
         if slate_creator:
             parts.append(
-                f"[{cur}]drawtext=text='{_esc(slate_creator)}':font='Arial':"
-                f"fontsize=24:fontcolor=rgba(255,255,255,0.7):borderw=1:bordercolor=black@0.5:"
+                f"[{cur}]drawtext=text='{_esc(slate_creator)}':{font_arg}:"
+                f"fontsize=24:fontcolor=white@0.7:borderw=1:bordercolor=black@0.5:"
                 f"x=20:y={out_height}+{bar_h}-text_h-10[slate1]"
             )
             cur = "slate1"
         # Year bottom-right of bar
         if slate_year:
             parts.append(
-                f"[{cur}]drawtext=text='{_esc(slate_year)}':font='Arial':"
-                f"fontsize=24:fontcolor=rgba(255,255,255,0.7):borderw=1:bordercolor=black@0.5:"
+                f"[{cur}]drawtext=text='{_esc(slate_year)}':{font_arg}:"
+                f"fontsize=24:fontcolor=white@0.7:borderw=1:bordercolor=black@0.5:"
                 f"x=w-text_w-20:y={out_height}+{bar_h}-text_h-10[slate2]"
             )
             cur = "slate2"
