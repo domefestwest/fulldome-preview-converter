@@ -73,6 +73,8 @@ const DEFAULT_STATE = {
   watermarkSize:     15,
   // Filename template
   filenameTemplate:  "{filename}_{resolution}_{cropmode}_preview",
+  // Hardware acceleration
+  hwAccel:           true,
 };
 
 function loadSavedSettings() {
@@ -318,6 +320,7 @@ export default function App() {
       watermarkCorner:   settings.watermarkCorner,
       watermarkOpacity:  settings.watermarkOpacity,
       watermarkSize:     settings.watermarkSize,
+      hwAccel:           settings.hwAccel,
     };
   }
 
@@ -737,6 +740,21 @@ export default function App() {
                       />
                     </div>
                   )}
+                  <div className={styles.field}>
+                    <div className={styles.burnInHeader}>
+                      <label className={styles.fieldLabel} style={{ margin: 0 }}>GPU Acceleration</label>
+                      <button
+                        className={settings.hwAccel ? styles.toggleOn : styles.toggleOff}
+                        onClick={() => set("hwAccel")(!settings.hwAccel)}
+                        aria-pressed={settings.hwAccel}
+                        title="Uses VideoToolbox on Mac, NVENC on NVIDIA, AMF on AMD"
+                      >
+                        {settings.hwAccel ? "On" : "Off"}
+                      </button>
+                    </div>
+                    <p className={styles.hint}>Mac: VideoToolbox · NVIDIA: NVENC · AMD: AMF · fallback: CPU</p>
+                  </div>
+
                   <div className={styles.field}>
                     <label className={styles.fieldLabel}>Quality</label>
                     <ToggleGroup

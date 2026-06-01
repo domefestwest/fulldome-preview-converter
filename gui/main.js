@@ -289,6 +289,7 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     watermarkCorner,
     watermarkOpacity,
     watermarkSize,
+    hwAccel,
   } = opts;
 
   const python = findPython();
@@ -344,6 +345,9 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     args.push("--watermark-opacity", String(watermarkOpacity ?? 80));
     args.push("--watermark-size", String(watermarkSize ?? 15));
   }
+
+  // GPU acceleration (default on — pass flag only to disable)
+  if (hwAccel === false) args.push("--no-hw-accel");
 
   const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;

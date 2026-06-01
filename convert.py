@@ -102,6 +102,114 @@ def find_ffmpeg() -> str:
     return "ffmpeg"
 
 
+# ---------------------------------------------------------------------------
+# Hardware encoder detection
+# ---------------------------------------------------------------------------
+
+# Priority order: best GPU encoders first, software last
+HW_ENCODER_PRIORITY = [
+    "h264_videotoolbox",   # macOS (Apple Silicon + Intel) — always available on Mac
+    "h264_nvenc",          # NVIDIA (Windows / Linux)
+    "h264_amf",            # AMD (Windows)
+    "h264_qsv",            # Intel Quick Sync (Windows / Linux)
+    "libx264",             # software fallback
+]
+
+# Module-level cache so we only probe once per process
+_encoder_cache: str | None = None
+
+
+def detect_best_encoder(ffmpeg: str) -> str:
+    """Return the best available H.264 encoder. Result is cached per process."""
+    global _encoder_cache
+    if _encoder_cache is not None:
+        return _encoder_cache
+
+    # Get list of compiled-in encoders
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=10
+        )
+        compiled = result.stdout
+    except Exception:
+        _encoder_cache = "libx264"
+        return _encoder_cache
+
+    # Test each candidate in priority order
+    for enc in HW_ENCODER_PRIORITY:
+        if enc not in compiled:
+            continue
+        if enc == "libx264":
+            # Software encoder is always usable if compiled in
+            _encoder_cache = "libx264"
+            return _encoder_cache
+        # Verify the hardware encoder actually works with a tiny test encode
+        try:
+            test = subprocess.run(
+                [ffmpeg, "-hide_banner", "-loglevel", "error",
+                 "-f", "lavfi", "-i", "color=black:s=64x64:d=0.04",
+                 "-c:v", enc, "-f", "null", "-"],
+                capture_output=True, timeout=10
+            )
+            if test.returncode == 0:
+                _encoder_cache = enc
+                return _encoder_cache
+        except Exception:
+            continue
+
+    _encoder_cache = "libx264"
+    return _encoder_cache
+
+
+def build_encoder_args(
+    encoder: str,
+    crf: int,
+    bitrate_kbps: int | None,
+) -> list[str]:
+    """
+    Return FFmpeg encoder CLI args for the given encoder and quality setting.
+    Each hardware encoder uses its own quality parameter equivalent to libx264 CRF.
+    """
+    # Always start with pixel format for compatibility
+    args = ["-pix_fmt", "yuv420p"]
+
+    if bitrate_kbps:
+        # Bitrate mode: works the same across all encoders
+        args += ["-c:v", encoder, "-b:v", f"{bitrate_kbps}k"]
+        if encoder == "h264_nvenc":
+            args += ["-preset", "p4"]
+        elif encoder == "h264_videotoolbox":
+            args += ["-allow_sw", "1"]
+        return args
+
+    # Constant-quality mode — encoder-specific parameter
+    if encoder == "h264_videotoolbox":
+        # VideoToolbox uses -q:v 1-100 (100=best). Map CRF linearly:
+        #   CRF 0  → q:v 100,  CRF 18 → q:v 65,  CRF 26 → q:v 50,  CRF 51 → q:v 1
+        q = max(1, min(100, round(100 - crf * 1.94)))
+        args += ["-c:v", encoder, "-q:v", str(q), "-allow_sw", "1"]
+
+    elif encoder == "h264_nvenc":
+        # NVENC uses -cq (constant quality, same 0-51 range as CRF)
+        args += ["-c:v", encoder, "-preset", "p4", "-rc", "vbr", "-cq", str(crf)]
+
+    elif encoder == "h264_amf":
+        # AMF uses constant QP mode
+        args += ["-c:v", encoder, "-quality", "quality",
+                 "-rc", "cqp", "-qp_i", str(crf), "-qp_p", str(crf)]
+
+    elif encoder == "h264_qsv":
+        # QSV uses -global_quality (same range as CRF)
+        args += ["-c:v", encoder, "-preset", "medium", "-global_quality", str(crf)]
+
+    else:
+        # libx264 software
+        args += ["-c:v", "libx264", "-crf", str(crf)]
+
+    return args
+
+
 def probe_duration(input_path: str) -> float | None:
     ffprobe = find_ffmpeg().replace("ffmpeg", "ffprobe")
     try:
@@ -361,6 +469,7 @@ def run_conversion(
     watermark_corner: str = "br",
     watermark_opacity: int = 80,
     watermark_size: int = 15,
+    hw_accel: bool = True,
 ) -> int:
     out_w, out_h = get_output_dims(resolution, crop_mode)
 
@@ -438,11 +547,14 @@ def run_conversion(
         if not input_is_image and trim_end and trim_end > (trim_start or 0.0):
             cmd += ["-t", str(trim_end - (trim_start or 0.0))]
 
-        cmd += ["-c:v", "libx264"]
-        if bitrate_kbps:
-            cmd += ["-b:v", f"{bitrate_kbps}k"]
+        # Select encoder: GPU if available and requested, else software
+        ffmpeg_bin = find_ffmpeg()
+        if hw_accel:
+            encoder = detect_best_encoder(ffmpeg_bin)
         else:
-            cmd += ["-crf", str(crf)]
+            encoder = "libx264"
+
+        cmd += build_encoder_args(encoder, crf, bitrate_kbps)
 
         if not input_is_image and not out_label:
             cmd += build_audio_args(audio)
@@ -595,6 +707,8 @@ Examples:
                    help="Watermark opacity 0-100 (default: 80)")
     p.add_argument("--watermark-size", type=int, default=15, metavar="PCT",
                    help="Watermark width as %% of output width (default: 15)")
+    p.add_argument("--no-hw-accel", action="store_true",
+                   help="Force software (libx264) encoding, disabling GPU acceleration")
     p.add_argument("--verbose", "-v", action="store_true",
                    help="Print FFmpeg command and raw output")
     return p.parse_args(argv)
@@ -642,9 +756,14 @@ def main(argv=None) -> int:
     if args.pip_margin < 0:
         sys.exit("Error: --pip-margin must be non-negative")
 
+    hw_accel = not args.no_hw_accel
+    encoder = detect_best_encoder(find_ffmpeg()) if hw_accel else "libx264"
+    hw_label = f"{encoder} (GPU)" if encoder != "libx264" else "libx264 (CPU)"
+
     print(f"Input:      {args.input}")
     print(f"Output:     {output}")
     print(f"Resolution: {args.resolution} ({out_w}×{out_h})  Crop: {args.crop_mode}")
+    print(f"Encoder:    {hw_label}")
     print(f"Sweet spot: {args.sweet_spot}%  Scale: {args.scale:.2f}x  H-pan: {args.h_pan}%")
     pip_on = not args.no_pip
     print(f"PiP:        {'off' if not pip_on else f'{pip_sz}px at {args.pip_position}, margin {args.pip_margin}px'}")
@@ -694,6 +813,7 @@ def main(argv=None) -> int:
         watermark_corner   = args.watermark_corner,
         watermark_opacity  = args.watermark_opacity,
         watermark_size     = args.watermark_size,
+        hw_accel           = hw_accel,
     )
 
     if rc == 0:
