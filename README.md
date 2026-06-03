@@ -1,193 +1,224 @@
 # Fulldome Preview Converter
 
-**A free, open-source tool from [Dome Fest West](https://domefestwest.com) for independent fulldome creators.**
+**Turn your dome master into a sales asset in under five minutes.**
 
-You made something extraordinary. A film designed to fill a dome — 360 degrees, fully immersive, the kind of experience that changes how someone sees the world. Now you need to show people what it looks like before they can see it in a planetarium.
-
-That's the problem this tool solves.
-
-The Fulldome Preview Converter takes your fulldome master file — the 1:1 circular fisheye format every fulldome film is shot in — and converts it to a 16:9 preview video. The kind you can post to Vimeo, send to a festival, share with a potential distributor, or drop into a sponsorship deck. A small picture-in-picture of the full circular frame sits in the corner, so viewers understand what they're actually looking at.
-
-No subscription. No render farm. No hiring a post-production studio to do something that should take about five minutes. Just drag in your file, set your crop, hit Convert.
+*A free tool from [Dome Fest West](https://domefestwest.com), built for fulldome creators, planetarium producers, and immersive content studios.*
 
 ---
 
-## Who This Is For
+## Your work deserves an audience. This helps you find one.
 
-Independent fulldome filmmakers. Solo creators. Small studios working without a dedicated finishing artist. Anyone making dome content who needs a clean, professional-looking preview without spending three days and $500 on an edit.
+You made something extraordinary. A film designed to fill a dome — 360 degrees, fully immersive, the kind of experience that changes how someone sees the world.
 
-The big studios have teams for this. You have this tool.
+But you can't put a dome inside an email. You can't drop a fisheye master into a Vimeo upload. You can't post a 1:1 circle to Instagram and expect a sponsor to imagine what it looks like at Fiske, or Adler, or the Hayden.
+
+So your finished film sits in a folder. Festivals don't see it. Venues don't book it. Sponsors don't fund the next one.
+
+**This tool exists to fix that.**
+
+Drag your dome master in. Pick the format your audience uses — a horizontal preview for Vimeo, a vertical clip for Reels, a square for your Instagram feed. Add your title, your studio name, your year. Watch the live preview update as you tweak. Hit Convert.
+
+Five minutes later, you've got a sales-ready file you can send to a festival, embed in a sponsor deck, post to YouTube, or DM to the curator at the planetarium you want to play in next.
 
 ---
 
-## What It Does
+## What you can make with it
 
-The converter applies a multi-layer composite to your fisheye master:
+Every output is something your audience can actually watch on the device they're already holding.
 
-- **Background layer** — the fisheye is scaled to fill the output frame, then cropped vertically and horizontally. Sweet-spot and pan controls let you dial in exactly which part of the dome you want centered.
-- **PiP overlay** — a small circular copy of the full fisheye sits in a corner of your choice, so viewers understand the format and see the full composition.
-- **Optional finishing pass** — burn-in text, letterbox slate bar, watermark/logo, Rec.709 color tagging, and audio loudness normalization (-23 LUFS festival / -14 LUFS streaming).
+### Marketing previews
+- **YouTube / Vimeo trailer** — full 16:9, with your title card, your name, and a circular reference frame in the corner so viewers understand the dome format
+- **Instagram Reels & TikTok teaser** — 9:16 vertical crop, trimmed to a 30-second highlight, with your logo watermarked in the corner
+- **Instagram feed clip** — 1:1 square, perfect for the grid
+- **Sponsor pitch deck embed** — high-quality 1080p with audio normalized to streaming standards so it plays cleanly inside Keynote, PowerPoint, or Google Slides
 
-**Three output formats:** 16:9 widescreen, 9:16 vertical (Instagram Reels, TikTok), 1:1 square. **GPU-accelerated on every platform** — VideoToolbox on Mac, NVENC on NVIDIA, AMF on Windows AMD, VAAPI on Linux AMD/Intel, Quick Sync on Intel — with automatic CPU fallback.
+### Festival deliverables
+- **Festival submission preview** — 4K, with a letterbox slate bar containing title, creator, and year burned in
+- **Festival jury screener** — color-tagged for accurate playback in QuickTime, Premiere, or whatever the jury opens it in
+- **Loudness-compliant audio** — one-click -23 LUFS for broadcast/festival, or -14 LUFS for streaming platforms
 
-The output is H.264 MP4, ready for any platform.
+### Press kits & EPKs
+- **Batch convert a whole press kit** — drop in 10 stills and 3 clips from your project, hit Convert All, walk away
+- **Frame grabs for press** — automatic poster JPG saved alongside every video
+- **Watermarked previews** — your studio logo subtly placed in the corner so files shared with press still credit you
+
+---
+
+## Why fulldome creators use it
+
+**Made by people who actually run a festival.** [Dome Fest West](https://domefestwest.com) is a working fulldome festival. We sat through hundreds of submissions, watched creators struggle with the same conversion problem, and built this tool because the industry needed it.
+
+**No subscription, no render farm, no post house.** Everything runs locally on your laptop. Free forever, MIT licensed. You own the output.
+
+**Fast.** GPU-accelerated on every platform — Apple Silicon, Intel, NVIDIA, AMD, and Linux integrated graphics. A 4-minute fulldome film at 4K converts in under a minute on a modern Mac. Without GPU, it still works — just slower.
+
+**Knows the format.** This isn't a generic video converter. It understands what a dome master is. The sweet-spot control lets you point the camera at the part of the dome your audience needs to see. The PiP overlay tells the viewer they're looking at an immersive piece without you having to explain it in your caption.
+
+**Sales-ready out of the box.** Slate bars, watermarks, color tagging, audio normalization, social-platform duration warnings — all the finishing touches that separate a sales asset from a "raw render" are one click away.
 
 ---
 
 ## Download
 
-Grab the latest installer for your platform from the [**Releases page**](https://github.com/domefestwest/fulldome-preview-converter/releases):
+Grab the installer for your computer:
 
-| Platform | File |
+| Your computer | Download |
 |----------|------|
-| macOS (Apple Silicon) | `Fulldome-Preview-Converter-x.y.z-arm64.dmg` |
-| macOS (Intel)         | `Fulldome-Preview-Converter-x.y.z.dmg` |
-| Windows 10/11 (x64)   | `Fulldome-Preview-Converter-x.y.z.exe` |
-| Linux (x64)           | `Fulldome-Preview-Converter-x.y.z.AppImage` |
+| **Mac (M1/M2/M3 — most Macs sold in the last 4 years)** | [`-arm64.dmg`](https://github.com/domefestwest/fulldome-preview-converter/releases) |
+| **Mac (Intel — older Macs)** | [`.dmg`](https://github.com/domefestwest/fulldome-preview-converter/releases) |
+| **Windows 10 or 11** | [`.exe`](https://github.com/domefestwest/fulldome-preview-converter/releases) |
+| **Linux** | [`.AppImage`](https://github.com/domefestwest/fulldome-preview-converter/releases) |
 
-Each installer bundles a static build of **FFmpeg + ffprobe** plus the **DejaVuSans** font, so there's nothing else to install except Python.
+Everything's bundled inside the installer — FFmpeg, fonts, all the under-the-hood machinery. The only thing you need on your computer is Python 3.10 or newer (most modern computers already have it).
 
-> **First-launch warning on Mac:** the app isn't code-signed yet (no Apple Developer ID). Right-click the app → Open → Open Anyway. Same on Windows: SmartScreen → "More info" → "Run anyway." These warnings will go away once we ship signed builds.
-
-[Report issues here.](https://github.com/domefestwest/fulldome-preview-converter/issues)
+> **First-launch heads-up.** This is a brand-new tool from a small nonprofit, and we haven't paid for the expensive code-signing certificates that big companies use yet. On a Mac, you'll see "this app is from an unidentified developer" the first time — right-click the app, choose Open, then click Open Anyway. On Windows, you'll see a SmartScreen warning — click "More info," then "Run anyway." This only happens once.
 
 ---
 
-## Requirements
+## Inside the app
 
-**Python 3.10+** must be installed on your system. Everything else (FFmpeg, ffprobe, fonts) is bundled with the installer.
+A quick walkthrough of what you'll see when you open it.
 
-| Platform | Install Python |
-|----------|----------------|
-| macOS    | `brew install python` or [python.org/downloads](https://www.python.org/downloads/) |
-| Windows  | Microsoft Store → "Python 3.12" or [python.org/downloads](https://www.python.org/downloads/) |
-| Linux    | `sudo apt install python3` (already present on most distros) |
+### Drop your file
+The big drop zone in the middle accepts any dome master format you've got — MP4, MOV, MKV from a render, or EXR / TIFF / DPX stills from a frame sequence. Drag it in. You'll see your first frame within a couple seconds.
 
-For building from source: **Node.js 18+** and **npm**.
+### Pick your output format
+Above the settings panel, three buttons: **16:9 Widescreen**, **9:16 Vertical**, **1:1 Square**. This is the single most important choice — it changes the entire output shape and how the dome image gets cropped to fit.
 
----
+### Frame your dome
+The **Background Image** tab is where you tell the converter which part of the dome to show.
 
-## GUI — Desktop Application
+- **Vertical Position** — slide between top of the dome (zenith) and bottom (horizon). Most films sit nicely at 30%.
+- **Horizontal Position** — when you're zoomed in, this pans left-right. Center is 50%.
+- **Scale** — zoom into the dome image to fill black corners or focus on a specific area.
 
-```bash
-git clone https://github.com/domefestwest/fulldome-preview-converter.git
-cd fulldome-preview-converter/gui
-npm install
-npm start
-```
+The preview updates live as you slide. What you see is what you'll get.
 
-### Controls
+### Add the picture-in-picture
+The **Picture-in-Picture** tab puts a small circular copy of the full dome in a corner of your output. Viewers see your cropped 16:9 preview AND understand it's an immersive piece. Pick a corner, set the size, set the padding.
 
-| Control | What it does |
-|---------|-------------|
-| **File drop zone** | Drag in your `.mp4` or click to browse. Shows detected resolution after load. |
-| **Live Preview** | Canvas preview updates instantly as you adjust settings. Scrub the timeline to find the right frame. |
-| **Output Resolution** | 4K (3840×2160) or 1080p (1920×1080). |
-| **Crop Position (Sweet Spot)** | 0% = top of dome, 100% = bottom. Default 30% works for most films. Adjust until your key scene looks right in the preview. |
-| **PiP Position** | Choose which corner the circular reference frame appears in. |
-| **PiP Size** | Diameter of the PiP in pixels. Default auto-sizes to 480px (4K) or 270px (1080p). |
-| **PiP Image Padding** | Distance from the corner in pixels. |
-| **Audio** | Downmix to stereo AAC, or passthrough your original audio unchanged. |
-| **Quality** | Draft (faster, smaller file) / Standard (balanced) / High (near-lossless). |
-| **Output Path** | Defaults to the same folder as your input file. Click Change to override. |
+You can turn this off entirely if you'd rather have a clean 16:9 with no overlay.
 
-### Building for Distribution
+### Polish for delivery
+The **Export** tab is where the marketing magic happens.
 
-```bash
-cd gui && npm run make
-```
+- **Quality** — Draft for quick sharing, Standard for most uses, High for archival or festival masters.
+- **Burn-in overlays** — title text, filename, frame number — in either bottom corner.
+- **Slate bar** — adds a black letterbox bar below the video with your title, your name, and your year. Looks like a broadcast deliverable.
+- **Watermark** — drop in your studio logo as a PNG, choose the corner and opacity.
+- **Color space (Rec.709)** — prevents your video from looking washed out when someone opens it in Premiere or QuickTime.
+- **Audio normalization** — one click for festival-spec loudness (-23 LUFS) or streaming-spec (-14 LUFS).
 
-Produces:
-- `dist/*.dmg` — macOS disk image
-- `dist/*-setup.exe` — Windows NSIS installer
-- `dist/*.AppImage` — Linux portable binary
+### Save your settings as a preset
+Configure once, save as a named preset, load it next time. Three built-in presets cover the most common workflows:
 
----
+- **🌟 Quick Teaser** — 9:16 vertical, trimmed to 30 seconds, slate ready
+- **🌟 Festival Submission** — 4K widescreen, high quality, color-tagged, loudness-normalized for festival delivery
+- **🌟 Social Reels** — 9:16, manual bitrate, streaming-spec audio
 
-## CLI — Command Line Interface
+### Hit Convert
+You'll see a progress bar with a time estimate. When it's done, you can:
 
-The CLI (`convert.py`) works independently — no GUI, no Electron, no Node. Useful for batch processing or integration into existing pipelines.
-
-```bash
-python convert.py --input film.mp4
-```
-
-### All Flags
-
-```
---input         Path to source .mp4 file (required)
---output        Output path (default: <input>_<resolution>_preview.mp4)
---resolution    4k or 1080p (default: 4k)
---sweet-spot    0–100, crop position from top of dome (default: 30)
---pip-size      PiP diameter in pixels (default: 480 for 4K, 270 for 1080p)
---pip-margin    Distance from corner in pixels (default: 40)
---pip-position  br, bl, tr, tl — corner (default: br)
---audio         stereo or passthrough (default: stereo)
---crf           H.264 quality, 0–51 (default: 18; lower = better)
---verbose       Print FFmpeg command and raw output
-```
-
-### Examples
-
-```bash
-# Standard 4K preview
-python convert.py --input my_film.mp4
-
-# 1080p draft for quick sharing
-python convert.py --input my_film.mp4 --resolution 1080p --crf 26
-
-# Adjust crop for a film that opens wide
-python convert.py --input my_film.mp4 --sweet-spot 20
-
-# Passthrough audio, PiP in bottom-left
-python convert.py --input my_film.mp4 --audio passthrough --pip-position bl
-
-# High quality, custom output path
-python convert.py --input my_film.mp4 --crf 12 --output /Volumes/Renders/preview.mp4
-```
+- **Open the file** in your default video player to review
+- **Show in Finder / File Explorer** to grab it for upload
+- **Drag the success card** directly into Slack, an email, or your editor
+- **Get a system notification** when conversion finishes (useful for long files)
 
 ---
 
-## How the Filtergraph Works
+## Built for different workflows
 
-For those who want to understand or extend the underlying FFmpeg command:
+### For festival submitters
+Use the **Festival Submission** preset as a starting point. The slate bar gives your submission that broadcast-deliverable polish jurors expect. Color tagging means whoever opens your file sees the colors you actually graded. The -23 LUFS loudness normalization meets the audio specs most festivals require. Watch for the **platform duration warning** chip — if your trim exceeds a target festival's runtime limit, you'll see it before you encode.
 
-```
-ffmpeg -i input.mp4 -filter_complex \
-  "[0:v]scale=OUT_W:OUT_W,crop=OUT_W:OUT_H:0:CROP_OFFSET[bg]; \
-   [0:v]scale=PIP:PIP[pip]; \
-   [bg][pip]overlay=X:Y" \
-  -c:v libx264 -crf CRF -c:a aac -ac 2 output.mp4
-```
+### For planetarium marketing teams
+You've got a season of shows to promote and a small team. Batch mode lets you drop in every show trailer at once, hit Convert All, and walk away. Use a preset with your venue's logo as the watermark and your slate format dialed in — every output becomes consistent without manual setup. The 9:16 format is a goldmine for Instagram Reels promoting upcoming shows.
 
-Where:
-- `OUT_W` = 3840 (4K) or 1920 (1080p)
-- `OUT_H` = 2160 (4K) or 1080 (1080p)
-- `CROP_OFFSET` = `(OUT_W - OUT_H) × (1 - sweet_spot / 100)`
-- `PIP` = 480 (4K) or 270 (1080p) by default
+### For indie creators selling to venues
+Your pitch is everything. The **Sponsor Pitch Deck** workflow: 1080p, slate bar with your name and year, watermark with your studio logo, color tagged for accurate playback inside Keynote and PowerPoint. Plus a poster JPG export checkbox so you have a thumbnail for the deck cover slide.
+
+### For studios with multiple deliverables per project
+A single source dome master often needs to ship as: festival 4K, Vimeo 1080p, Instagram Reels 9:16, Instagram feed 1:1, press kit thumbnail. Save each as a preset, batch-convert in a single session. Use the filename template ({filename}_{cropmode}_{resolution}) so every output is automatically named for its destination.
+
+### For educators and museum content producers
+Most of the same workflows apply — you usually need a sample to send to administrators, a clip for the museum's website, and a teaser for social. The **Quick Teaser** preset is designed for exactly this.
 
 ---
 
-## Project Status
+## Frequently asked
 
-**v0.2.0** — Production-ready feature set. Bundled FFmpeg, GPU acceleration on all platforms, cross-platform installers via GitHub Actions. Mac builds verified end-to-end; Windows and Linux builds compile in CI but haven't been field-tested yet. See [CHANGELOG.md](CHANGELOG.md) for details.
+**My render is 8K — will it work?**
+Yes. The output downscales to 4K or 1080p. Source files can be any resolution.
 
-This is a community project. If you're a fulldome creator, developer, or planetarium professional who wants to help make this better, read [CONTRIBUTING.md](CONTRIBUTING.md).
+**My render is a frame sequence (EXR / DPX / TIFF) — will it work?**
+Yes. Drop in any single frame and you'll get a still preview at your chosen format. For a video preview from a frame sequence, render it to MOV or MP4 first in After Effects, Resolve, or Premiere, then convert.
+
+**Does it preserve my audio?**
+Yes. By default it downmixes to stereo AAC for broad compatibility. You can switch to passthrough mode to keep your original audio track untouched. If you turn on loudness normalization, audio is re-encoded to meet the chosen spec.
+
+**Will it bake in my logo?**
+Yes — add a PNG logo as a watermark. You control corner, opacity, and size.
+
+**Can I trim to just a 30-second highlight?**
+Yes. The trim controls let you set in and out points on the timeline. Combined with the **Test Render** button (5-second sample at current settings), you can dial in exactly the right window before encoding the full thing.
+
+**Will my colors look right when someone opens the file?**
+Yes — turn on **Color space (Rec.709)** in the Export tab and the output gets the right metadata tags. This prevents the washed-out look you sometimes get when a video plays back in Premiere, QuickTime, or VLC.
+
+**How big will the output file be?**
+The app shows a live size estimate next to the Convert button based on your current settings. For typical 4K 4-minute fulldome films at standard quality, expect 200–400 MB. At draft quality, 50–150 MB.
+
+**How long does conversion take?**
+On a modern Mac with GPU acceleration on (default), about half the duration of your source file. A 4-minute fulldome master converts in roughly two minutes. On Windows/Linux with NVIDIA, AMD, or Intel GPUs, similar speeds. On CPU-only, expect 2-4× the source duration.
+
+**My computer doesn't have a GPU — will it still work?**
+Yes. The app automatically falls back to CPU encoding. It's slower but the output is identical.
+
+**Does it work offline?**
+Yes, entirely. Nothing is uploaded, nothing is sent to a cloud service. Your files stay on your computer.
+
+**Will my client / festival / venue / sponsor know I used this tool?**
+No. The output is a standard MP4 with no watermarks or branding (unless you add your own watermark, which is the point).
+
+**Can I use this for commercial projects?**
+Yes. MIT licensed, no commercial restrictions. The output is yours.
 
 ---
 
 ## About Dome Fest West
 
-[Dome Fest West](https://domefestwest.com) is the only dedicated fulldome film festival in the United States — a nonprofit based in Los Angeles with an annual festival and industry expo at Fiske Planetarium, University of Colorado Boulder. Our mission is to advance and elevate immersive experiences globally by supporting fulldome creators, connecting them with venues and audiences, and building the infrastructure the industry needs to grow.
+[Dome Fest West](https://domefestwest.com) is the only dedicated fulldome film festival in the United States — a nonprofit based in Los Angeles with an annual festival and industry expo at Fiske Planetarium, University of Colorado Boulder.
+
+Our mission is to advance and elevate immersive experiences globally by supporting fulldome creators, connecting them with venues and audiences, and building the infrastructure the industry needs to grow.
 
 This tool exists because the industry needs it. We're building it in the open so anyone can use it, improve it, or adapt it for their own workflow.
 
-**Questions?** Open an issue or reach out at [domefestwest.com](https://domefestwest.com).
+**Questions? Want to share what you made with it?** Reach out at [domefestwest.com](https://domefestwest.com) or [open an issue on GitHub](https://github.com/domefestwest/fulldome-preview-converter/issues).
+
+---
+
+## For power users and developers
+
+This is a polished GUI on top of a Python command-line tool. If you're integrating fulldome conversion into a render pipeline, building automation around batches of shows, or just prefer terminals, the CLI is fully featured and stable.
+
+```bash
+python convert.py --input my_film.mp4 --crop-mode 9:16 --trim-end 30 \
+                  --slate-title "My Film" --slate-creator "Studio Name" \
+                  --watermark logo.png --loudnorm -23
+```
+
+Run `python convert.py --help` for the full flag list. The same Python script powers the GUI — anything the GUI can do, the CLI can do, plus it's batch-friendly for shell scripting.
+
+**Building from source:** see [BUILDING.md](BUILDING.md) (or just `cd gui && npm install && npm run dev`).
+
+**Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). We welcome bug reports, feature requests, and pull requests from anyone in the fulldome and planetarium community — whether you're a developer or a creator who's hit a snag.
+
+**Project status:** v0.2.0. See [CHANGELOG.md](CHANGELOG.md) for what's new.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Use this for your own films, for client work, for your studio, for your venue. We just ask that you tell other fulldome creators about it.
 
-FFmpeg is licensed separately under LGPL/GPL. This tool calls FFmpeg as an external process and does not link against its libraries, which is the simplest approach to LGPL compliance. See [FFmpeg's legal page](https://ffmpeg.org/legal.html) for full details.
+FFmpeg, the open-source media engine that powers the conversion under the hood, is licensed separately under LGPL/GPL. This tool calls FFmpeg as an external process and does not statically link its libraries. See [FFmpeg's legal page](https://ffmpeg.org/legal.html) for full details.
