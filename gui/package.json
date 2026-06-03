@@ -1,13 +1,17 @@
 {
   "name": "fulldome-preview-converter",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0",
   "description": "Fulldome fisheye to 16:9 preview converter for Dome Fest West",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "vite build",
     "dev": "concurrently \"vite --port 5274\" \"wait-on http://localhost:5274 && electron .\"",
-    "make": "electron-builder"
+    "fetch-ffmpeg": "node ../scripts/fetch-ffmpeg.js",
+    "make": "npm run build && electron-builder",
+    "make:mac": "npm run build && electron-builder --mac",
+    "make:win": "npm run build && electron-builder --win",
+    "make:linux": "npm run build && electron-builder --linux"
   },
   "keywords": ["fulldome", "ffmpeg", "video", "converter"],
   "author": "Dome Fest West",
@@ -27,6 +31,10 @@
   "build": {
     "appId": "com.domefestwest.fulldome-converter",
     "productName": "Fulldome Preview Converter",
+    "directories": {
+      "buildResources": "build",
+      "output": "../release"
+    },
     "files": [
       "dist/**/*",
       "main.js",
@@ -45,20 +53,34 @@
     ],
     "mac": {
       "category": "public.app-category.video",
-      "target": [{"target": "dmg", "arch": ["arm64", "x64"]}]
+      "icon": "build/icon.icns",
+      "target": [{"target": "dmg", "arch": ["arm64", "x64"]}],
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Fulldome Preview Converter ${version}",
+      "icon": "build/icon.icns"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [{"target": "nsis", "arch": ["x64"]}]
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [{"target": "AppImage", "arch": ["x64"]}],
-      "category": "Video"
+      "category": "AudioVideo",
+      "synopsis": "Convert fulldome fisheye media to 16:9 preview with PiP overlay",
+      "description": "Fulldome Preview Converter turns 1:1 dome-master video and stills into 16:9, 9:16, or 1:1 preview deliverables for marketing and submissions. Built by Dome Fest West."
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     }
   }
 }

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: dark rounded square (macOS-style) -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f1f23"/>
+      <stop offset="1" stop-color="#0e0e10"/>
+    </linearGradient>
+    <radialGradient id="domeGrad" cx="0.5" cy="0.95" r="0.95">
+      <stop offset="0" stop-color="#FFB347"/>
+      <stop offset="0.55" stop-color="#ED8B1E"/>
+      <stop offset="1" stop-color="#A85A0A"/>
+    </radialGradient>
+    <radialGradient id="domeHighlight" cx="0.35" cy="0.6" r="0.45">
+      <stop offset="0" stop-color="#FFF0CC" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFF0CC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="frameGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F2C200"/>
+      <stop offset="1" stop-color="#FFD64A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background tile -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="url(#bgGrad)"/>
+
+  <!-- Subtle inner highlight at top -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="none"
+        stroke="#ffffff" stroke-opacity="0.04" stroke-width="2"/>
+
+  <!-- Dome (hemisphere) — centered, sits on a baseline -->
+  <!-- Dome center at (512, 640), radius 320 -->
+  <path d="M 192 640 A 320 320 0 0 1 832 640 Z" fill="url(#domeGrad)"/>
+
+  <!-- Dome highlight (gives 3D look) -->
+  <path d="M 192 640 A 320 320 0 0 1 832 640 Z" fill="url(#domeHighlight)"/>
+
+  <!-- 16:9 frame cutting through the dome at the "sweet spot" -->
+  <!-- 16:9 frame: 640 wide x 360 tall, centered at (512, 540) -->
+  <!-- This represents the cropped preview region -->
+  <g>
+    <!-- Frame outline -->
+    <rect x="192" y="408" width="640" height="360" rx="14" ry="14"
+          fill="none" stroke="url(#frameGrad)" stroke-width="14"/>
+    <!-- Corner brackets for cinematic look -->
+    <g stroke="url(#frameGrad)" stroke-width="14" stroke-linecap="round" fill="none">
+      <path d="M 218 408 L 192 408 L 192 434"/>
+      <path d="M 806 408 L 832 408 L 832 434"/>
+      <path d="M 218 768 L 192 768 L 192 742"/>
+      <path d="M 806 768 L 832 768 L 832 742"/>
+    </g>
+  </g>
+
+  <!-- PiP circle in lower-right corner of the frame -->
+  <circle cx="760" cy="710" r="38" fill="#FFD64A" stroke="#ffffff" stroke-width="3" stroke-opacity="0.5"/>
+  <circle cx="760" cy="710" r="22" fill="#1f1f23"/>
+
+  <!-- Subtle baseline shadow under dome -->
+  <ellipse cx="512" cy="650" rx="320" ry="6" fill="#000000" fill-opacity="0.25"/>
+</svg>

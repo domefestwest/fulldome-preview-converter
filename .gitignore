@@ -15,6 +15,8 @@ node_modules/
 gui/dist/
 dist/
 out/
+release/
+.ffmpeg-cache/
 
 # Electron builder artifacts
 *.dmg

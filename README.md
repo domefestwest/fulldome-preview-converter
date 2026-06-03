@@ -22,35 +22,48 @@ The big studios have teams for this. You have this tool.
 
 ## What It Does
 
-The converter applies a two-layer composite to your fisheye master:
+The converter applies a multi-layer composite to your fisheye master:
 
-- **Background layer:** The fisheye is scaled to fill the 16:9 frame width, then cropped vertically. A "sweet spot" control lets you dial in exactly which part of the dome you want centered — crucial because every film frames differently.
-- **PiP overlay:** A small circular copy of the full fisheye sits in a corner of your choice, so viewers understand the format and see the full composition.
+- **Background layer** — the fisheye is scaled to fill the output frame, then cropped vertically and horizontally. Sweet-spot and pan controls let you dial in exactly which part of the dome you want centered.
+- **PiP overlay** — a small circular copy of the full fisheye sits in a corner of your choice, so viewers understand the format and see the full composition.
+- **Optional finishing pass** — burn-in text, letterbox slate bar, watermark/logo, Rec.709 color tagging, and audio loudness normalization (-23 LUFS festival / -14 LUFS streaming).
 
-The math exactly matches what a professional colorist would do manually in After Effects or Resolve. The output is H.264 MP4, ready for any platform.
+**Three output formats:** 16:9 widescreen, 9:16 vertical (Instagram Reels, TikTok), 1:1 square. **GPU-accelerated on every platform** — VideoToolbox on Mac, NVENC on NVIDIA, AMF on Windows AMD, VAAPI on Linux AMD/Intel, Quick Sync on Intel — with automatic CPU fallback.
+
+The output is H.264 MP4, ready for any platform.
 
 ---
 
 ## Download
 
-> **This software is currently in alpha (v0.1.0-alpha.1).** It works — we've tested it on real fulldome files — but expect rough edges. [Report issues here.](https://github.com/domefestwest/fulldome-preview-converter/issues)
+Grab the latest installer for your platform from the [**Releases page**](https://github.com/domefestwest/fulldome-preview-converter/releases):
 
-Pre-built installers are coming. For now, see **Building from Source** below.
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `Fulldome-Preview-Converter-x.y.z-arm64.dmg` |
+| macOS (Intel)         | `Fulldome-Preview-Converter-x.y.z.dmg` |
+| Windows 10/11 (x64)   | `Fulldome-Preview-Converter-x.y.z.exe` |
+| Linux (x64)           | `Fulldome-Preview-Converter-x.y.z.AppImage` |
+
+Each installer bundles a static build of **FFmpeg + ffprobe** plus the **DejaVuSans** font, so there's nothing else to install except Python.
+
+> **First-launch warning on Mac:** the app isn't code-signed yet (no Apple Developer ID). Right-click the app → Open → Open Anyway. Same on Windows: SmartScreen → "More info" → "Run anyway." These warnings will go away once we ship signed builds.
+
+[Report issues here.](https://github.com/domefestwest/fulldome-preview-converter/issues)
 
 ---
 
 ## Requirements
 
-**FFmpeg** must be installed on your system.
+**Python 3.10+** must be installed on your system. Everything else (FFmpeg, ffprobe, fonts) is bundled with the installer.
 
-| Platform | Install command |
+| Platform | Install Python |
 |----------|----------------|
-| macOS    | `brew install ffmpeg` |
-| Windows  | `choco install ffmpeg` or [download from ffmpeg.org](https://ffmpeg.org/download.html) |
-| Linux    | `sudo apt install ffmpeg` |
+| macOS    | `brew install python` or [python.org/downloads](https://www.python.org/downloads/) |
+| Windows  | Microsoft Store → "Python 3.12" or [python.org/downloads](https://www.python.org/downloads/) |
+| Linux    | `sudo apt install python3` (already present on most distros) |
 
-For the GUI: **Node.js 18+** and **npm**.
-For the CLI only: **Python 3.10+**.
+For building from source: **Node.js 18+** and **npm**.
 
 ---
 
@@ -157,7 +170,7 @@ Where:
 
 ## Project Status
 
-**v0.1.0-alpha.1** — Core conversion works. GUI functional on macOS. Windows and Linux untested. Pre-built installers not yet available. See [CHANGELOG.md](CHANGELOG.md) for details.
+**v0.2.0** — Production-ready feature set. Bundled FFmpeg, GPU acceleration on all platforms, cross-platform installers via GitHub Actions. Mac builds verified end-to-end; Windows and Linux builds compile in CI but haven't been field-tested yet. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 This is a community project. If you're a fulldome creator, developer, or planetarium professional who wants to help make this better, read [CONTRIBUTING.md](CONTRIBUTING.md).
 

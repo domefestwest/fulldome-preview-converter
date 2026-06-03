@@ -1,0 +1,112 @@
+name: Build release installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14         # Apple Silicon runner
+            platform: mac-arm64
+            target: mac-arm64
+            make: make:mac -- --arm64
+            artifact: "**/release/*-arm64.dmg"
+          - os: macos-13         # Intel Mac runner
+            platform: mac-x64
+            target: mac-x64
+            make: make:mac -- --x64
+            artifact: "**/release/*-x64.dmg"
+          - os: windows-latest
+            platform: win-x64
+            target: win-x64
+            make: make:win
+            artifact: "**/release/*.exe"
+          - os: ubuntu-latest
+            platform: linux-x64
+            target: linux-x64
+            make: make:linux
+            artifact: "**/release/*.AppImage"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: gui
+        run: npm install
+
+      - name: Fetch FFmpeg binaries for ${{ matrix.target }}
+        run: node scripts/fetch-ffmpeg.js --target=${{ matrix.target }}
+
+      - name: Build installer
+        working-directory: gui
+        run: npm run ${{ matrix.make }}
+        env:
+          # Disable code signing on macOS (we don't have a Developer ID yet)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Don't fail if no notarization credentials
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+
+      - name: List built artifacts
+        if: always()
+        shell: bash
+        run: find release -maxdepth 2 -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.zip" -o -name "*.yml" -o -name "*.blockmap" \) -print 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.yml
+            release/*.blockmap
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Attach installers to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f -print
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/installer-mac-arm64/*
+            artifacts/installer-mac-x64/*
+            artifacts/installer-win-x64/*
+            artifacts/installer-linux-x64/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
