@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld("api", {
   getFfmpegCommand: (opts) => ipcRenderer.invoke("get-ffmpeg-command", opts),
   startFileDrag: (filePath) => ipcRenderer.send("start-file-drag", filePath),
 
+  // Test-only (scripts/dev-test.js) — no-op unless launched via that harness
+  testResize: (w, h) => ipcRenderer.invoke("test-resize", w, h),
+
   // Progress / events from main → renderer
   onProgress: (cb) => {
     const handler = (_evt, data) => cb(data);

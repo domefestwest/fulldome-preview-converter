@@ -14,6 +14,12 @@ const { spawn, execFileSync } = require("child_process");
 
 const isDev = process.env.NODE_ENV !== "production" && !app.isPackaged;
 
+// Set only by scripts/dev-test.js — launches a fully functional but
+// invisible window so the app can be driven from the command line via the
+// Chrome DevTools Protocol instead of clicking. Never set in a normal run
+// or in any packaged/shipped build.
+const isTestMode = process.env.DFW_TEST_HIDDEN === "1";
+
 // ---------------------------------------------------------------------------
 // FFmpeg / Python resolution
 // ---------------------------------------------------------------------------
@@ -103,6 +109,7 @@ function createWindow() {
     minHeight: 700,
     backgroundColor: "#1a1a1a",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    show: !isTestMode,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -332,15 +339,15 @@ ipcMain.handle("system-info", async (_evt, force) => {
     proc.on("close", (code) => {
       if (code === 0) {
         try {
-          systemInfoCache = { ok: true, engine: runner.mode, appVersion: app.getVersion(), ...JSON.parse(stdout) };
+          systemInfoCache = { ok: true, engine: runner.mode, appVersion: app.getVersion(), testMode: isTestMode, ...JSON.parse(stdout) };
           resolve(systemInfoCache);
           return;
         } catch (e) {
-          resolve({ ok: false, error: `Parse error: ${e.message}`, stdout, stderr, engine: runner.mode, appVersion: app.getVersion() });
+          resolve({ ok: false, error: `Parse error: ${e.message}`, stdout, stderr, engine: runner.mode, appVersion: app.getVersion(), testMode: isTestMode });
           return;
         }
       }
-      resolve({ ok: false, error: stderr || `Process exited ${code}`, engine: runner.mode, appVersion: app.getVersion() });
+      resolve({ ok: false, error: stderr || `Process exited ${code}`, engine: runner.mode, appVersion: app.getVersion(), testMode: isTestMode });
     });
     proc.on("error", (err) => {
       resolve({
@@ -352,6 +359,7 @@ ipcMain.handle("system-info", async (_evt, force) => {
           : err.message,
         engine: runner.mode,
         appVersion: app.getVersion(),
+        testMode: isTestMode,
       });
     });
   });
@@ -465,6 +473,20 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
   });
 
   return { pid: proc.pid };
+});
+
+// ---------------------------------------------------------------------------
+// IPC: test-only hooks — used exclusively by scripts/dev-test.js
+// ---------------------------------------------------------------------------
+
+// Electron doesn't support resizing its native windows via the CDP Browser
+// domain (Browser.setWindowBounds errors "method not found"), so the test
+// harness resizes through a normal IPC call instead. Gated on isTestMode so
+// it's a no-op outside a dev-test.js launch — harmless to always expose.
+ipcMain.handle("test-resize", (_evt, w, h) => {
+  if (!isTestMode || !mainWindow) return false;
+  mainWindow.setSize(Number(w), Number(h));
+  return true;
 });
 
 ipcMain.handle("cancel-conversion", () => {

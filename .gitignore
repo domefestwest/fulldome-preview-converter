@@ -38,6 +38,10 @@ bin/dfw-convert.exe
 bin/_internal/
 .pyinstaller-build/
 
+# Dev test harness (see scripts/dev-test.js)
+.dev-test-state.json
+dev-test-screenshot.png
+
 # Test outputs — don't commit video files
 *.mp4
 *.mov

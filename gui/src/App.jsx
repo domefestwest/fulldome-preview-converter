@@ -293,6 +293,24 @@ export default function App() {
     });
   }, [isElectron]);
 
+  // Test-only hook for scripts/dev-test.js — lets the app be driven from the
+  // command line (load a file, read state, tweak settings) without clicking.
+  // Only attached when launched via dev-test.js (systemInfo.testMode), which
+  // sets DFW_TEST_HIDDEN=1 — this can never be true in a packaged/shipped
+  // build, since nothing in the normal launch path sets that env var.
+  useEffect(() => {
+    if (!systemInfo?.testMode) return;
+    window.__dfwTest = {
+      loadFile: handleFileDrop,
+      setSettings,
+      resize: (w, h) => window.api.testResize(w, h),
+      getState: () => ({
+        file, fileType, fileDuration, frameLoading,
+        settings, status, outputPath, batchMode, systemInfo,
+      }),
+    };
+  }, [systemInfo?.testMode, file, fileType, fileDuration, frameLoading, settings, status, outputPath, batchMode, systemInfo]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function onKey(e) {
