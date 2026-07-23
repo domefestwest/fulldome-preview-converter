@@ -26,11 +26,17 @@ release/
 *.rpm
 *.snap
 
-# FFmpeg binaries (download separately — see README)
+# FFmpeg binaries (download separately — see README / scripts/fetch-ffmpeg.js)
 bin/ffmpeg
 bin/ffmpeg.exe
 bin/ffprobe
 bin/ffprobe.exe
+
+# Compiled convert.py binary (build separately — see scripts/build-convert-binary.js)
+bin/dfw-convert
+bin/dfw-convert.exe
+bin/_internal/
+.pyinstaller-build/
 
 # Test outputs — don't commit video files
 *.mp4

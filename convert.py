@@ -7,6 +7,16 @@ Usage: python convert.py --input <file> [options]
 Run with --help for full flag documentation.
 """
 
+# Makes `str | None`-style union annotations parse as lazy strings instead of
+# being evaluated at def-time. Without this, running under Python < 3.10
+# (e.g. macOS's bundled /usr/bin/python3, which is 3.9) crashes immediately
+# on import with "unsupported operand type(s) for |". This is defense in
+# depth: the packaged app ships a compiled binary (see
+# scripts/build-convert-binary.js) that embeds its own Python 3.12 runtime
+# and never touches the system interpreter at all, but this line keeps the
+# raw `python convert.py` dev/CLI path safe on any Python 3.7+.
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -129,10 +139,25 @@ def get_pip_size(resolution: str) -> int:
 # FFmpeg helpers
 # ---------------------------------------------------------------------------
 
+def _app_bin_dir() -> Path:
+    """
+    Directory containing ffmpeg/ffprobe/font — and this program's own compiled
+    binary, when running as a PyInstaller-frozen executable.
+
+    Two run modes:
+      - Frozen (PyInstaller):  this program IS bin/dfw-convert(.exe), so the
+        bin/ dir is wherever the running executable lives on disk.
+      - Script (dev, `python convert.py`): bin/ is a sibling of convert.py.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent / "bin"
+
+
 def find_ffmpeg() -> str:
     candidates = [
-        Path(__file__).parent / "bin" / "ffmpeg",
-        Path(__file__).parent / "bin" / "ffmpeg.exe",
+        _app_bin_dir() / "ffmpeg",
+        _app_bin_dir() / "ffmpeg.exe",
     ]
     for c in candidates:
         if c.exists():
@@ -143,8 +168,8 @@ def find_ffmpeg() -> str:
 def find_ffprobe() -> str:
     """Locate ffprobe alongside ffmpeg — handles .exe suffix on Windows."""
     candidates = [
-        Path(__file__).parent / "bin" / "ffprobe",
-        Path(__file__).parent / "bin" / "ffprobe.exe",
+        _app_bin_dir() / "ffprobe",
+        _app_bin_dir() / "ffprobe.exe",
     ]
     for c in candidates:
         if c.exists():
@@ -163,7 +188,7 @@ def find_font() -> str | None:
       - Escape colons as backslash-colon (needed for Windows drive letters like C:/)
       - Escape single quotes as '\'' (filtergraph meta-character)
     """
-    candidate = Path(__file__).parent / "bin" / "DejaVuSans.ttf"
+    candidate = _app_bin_dir() / "DejaVuSans.ttf"
     if candidate.exists():
         path = str(candidate).replace("\\", "/")   # normalise to forward slashes
         path = path.replace(":", "\\:")             # Windows drive letter e.g. C\:/
@@ -175,7 +200,7 @@ def find_font() -> str | None:
 
 def find_font_raw() -> str | None:
     """Return the bundled font file path WITHOUT FFmpeg escaping (for display)."""
-    candidate = Path(__file__).parent / "bin" / "DejaVuSans.ttf"
+    candidate = _app_bin_dir() / "DejaVuSans.ttf"
     return str(candidate) if candidate.exists() else None
 
 
@@ -980,9 +1005,21 @@ def main(argv=None) -> int:
     args = parse_args(argv)
 
     # Health check: print system info and exit. Used by the GUI at startup.
+    # Never let this path raise — an unhandled exception here would print a
+    # raw Python traceback to stderr, which the GUI would otherwise show
+    # verbatim in its "Setup needed" banner. Always emit valid JSON instead.
     if args.system_info:
-        print(json.dumps(get_system_info(), indent=2))
-        return 0
+        try:
+            print(json.dumps(get_system_info(), indent=2))
+            return 0
+        except Exception as e:
+            # Exit 0 — we successfully produced a well-formed diagnostic
+            # payload; main.js parses stdout as JSON only when exit code is 0.
+            print(json.dumps({
+                "ok": False,
+                "error": f"{type(e).__name__}: {e}",
+            }, indent=2))
+            return 0
 
     if not args.input:
         sys.exit("Error: --input is required (or pass --system-info)")

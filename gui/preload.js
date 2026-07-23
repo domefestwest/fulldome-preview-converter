@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// NOTE: preload scripts run sandboxed — require() here is a restricted
+// polyfill that only resolves a small allowlist of built-in modules, NOT
+// arbitrary local files. require("./package.json") throws "module not
+// found" and silently kills the ENTIRE preload script (window.api becomes
+// undefined, breaking every IPC-backed feature). App version comes from
+// main.js's system-info IPC (Electron's app.getVersion()) instead.
+
 contextBridge.exposeInMainWorld("api", {
   // Static info
   platform: process.platform,
@@ -18,8 +25,9 @@ contextBridge.exposeInMainWorld("api", {
   buildOutputPath: (inputPath, renderedBase, ext) =>
     ipcRenderer.invoke("build-output-path", inputPath, renderedBase, ext),
 
-  // System info (startup health check)
-  getSystemInfo: () => ipcRenderer.invoke("system-info"),
+  // System info (startup health check). Pass true to force a fresh check,
+  // bypassing the main-process cache (used by the Settings panel's "Re-check").
+  getSystemInfo: (force) => ipcRenderer.invoke("system-info", !!force),
 
   // Conversion
   startConversion: (opts) => ipcRenderer.invoke("start-conversion", opts),

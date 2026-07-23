@@ -621,6 +621,8 @@
   padding: 18px 22px;
   min-width: 320px;
   max-width: 480px;
+  max-height: 82vh;
+  overflow-y: auto;
 }
 .modalHeader {
   display: flex; align-items: center; justify-content: space-between;
@@ -639,6 +641,75 @@
   font-family: ui-monospace, monospace;
   font-size: 11px;
   color: var(--gold);
+}
+
+/* ---- Settings panel ---- */
+.settingsSection {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.settingsSection:first-of-type { border-top: none; padding-top: 0; }
+
+.settingsSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.settingsSectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.settingsError {
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.settingsError strong { color: var(--error); }
+.settingsError p { margin: 4px 0 0; word-break: break-word; }
+
+.diagRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.diagRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+}
+.diagRow > span:last-child {
+  color: var(--text);
+  text-align: right;
+  word-break: break-word;
+}
+.diagOk { color: var(--success) !important; }
+.diagBad { color: var(--error) !important; }
+
+.settingsActionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settingsToast {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--gold);
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 
 /* ---- Tab reset ---- */

@@ -56,6 +56,36 @@ function findConvertScript() {
   return path.join(__dirname, "..", "convert.py");
 }
 
+/**
+ * Resolve how to invoke the conversion engine.
+ *
+ * The packaged app ships a standalone compiled binary (bin/dfw-convert or
+ * dfw-convert.exe, built via scripts/build-convert-binary.js / PyInstaller)
+ * so end users never need Python installed. If that binary isn't present
+ * (e.g. running from source in dev before building it), fall back to
+ * invoking convert.py with the system Python interpreter.
+ *
+ * Returns { cmd, baseArgs, mode } — spawn(cmd, [...baseArgs, ...convertArgs]).
+ */
+function findConvertRunner() {
+  const resourcesDir = app.isPackaged
+    ? path.join(process.resourcesPath, "bin")
+    : path.join(__dirname, "..", "bin");
+
+  const compiledCandidates = [
+    path.join(resourcesDir, "dfw-convert"),
+    path.join(resourcesDir, "dfw-convert.exe"),
+  ];
+  for (const c of compiledCandidates) {
+    if (fs.existsSync(c)) {
+      return { cmd: c, baseArgs: [], mode: "binary" };
+    }
+  }
+
+  // Dev fallback — no compiled binary yet, use system Python + script
+  return { cmd: findPython(), baseArgs: [findConvertScript()], mode: "python" };
+}
+
 // Extensions readable directly by Electron/Chromium without FFmpeg
 const BROWSER_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".bmp", ".webp"]);
 
@@ -288,14 +318,13 @@ ipcMain.handle("build-output-path", (_evt, inputPath, renderedBase, ext) => {
 
 let systemInfoCache = null;
 
-ipcMain.handle("system-info", async () => {
-  if (systemInfoCache) return systemInfoCache;
+ipcMain.handle("system-info", async (_evt, force) => {
+  if (systemInfoCache && !force) return systemInfoCache;
 
-  const python = findPython();
-  const script = findConvertScript();
+  const runner = findConvertRunner();
 
   return new Promise((resolve) => {
-    const proc = spawn(python, [script, "--system-info"], { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(runner.cmd, [...runner.baseArgs, "--system-info"], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
@@ -303,23 +332,26 @@ ipcMain.handle("system-info", async () => {
     proc.on("close", (code) => {
       if (code === 0) {
         try {
-          systemInfoCache = { ok: true, ...JSON.parse(stdout) };
+          systemInfoCache = { ok: true, engine: runner.mode, appVersion: app.getVersion(), ...JSON.parse(stdout) };
           resolve(systemInfoCache);
           return;
         } catch (e) {
-          resolve({ ok: false, error: `Parse error: ${e.message}`, stdout, stderr });
+          resolve({ ok: false, error: `Parse error: ${e.message}`, stdout, stderr, engine: runner.mode, appVersion: app.getVersion() });
           return;
         }
       }
-      resolve({ ok: false, error: stderr || `Process exited ${code}`, python, script });
+      resolve({ ok: false, error: stderr || `Process exited ${code}`, engine: runner.mode, appVersion: app.getVersion() });
     });
     proc.on("error", (err) => {
       resolve({
         ok: false,
         error: err.code === "ENOENT"
-          ? "Python not found. Install Python 3.10+ and make sure it's on your PATH."
+          ? (runner.mode === "python"
+              ? "Python not found. Install Python 3.10+ and make sure it's on your PATH."
+              : "Conversion engine not found. Try reinstalling the app.")
           : err.message,
-        python,
+        engine: runner.mode,
+        appVersion: app.getVersion(),
       });
     });
   });
@@ -340,9 +372,7 @@ function buildConvertArgs(opts) {
     watermarkPath, watermarkCorner, watermarkOpacity, watermarkSize,
     hwAccel, colorTag, loudnorm, posterFrame,
   } = opts;
-  const script = findConvertScript();
   const args = [
-    script,
     "--input",        inputPath,
     "--output",       outputPath,
     "--resolution",   resolution,
@@ -381,10 +411,10 @@ function buildConvertArgs(opts) {
 }
 
 ipcMain.handle("start-conversion", async (_evt, opts) => {
-  const python = findPython();
-  const args = buildConvertArgs(opts);
+  const runner = findConvertRunner();
+  const args = [...runner.baseArgs, ...buildConvertArgs(opts)];
   const outputPath = opts.outputPath;
-  const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawn(runner.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
   activeConversion = proc;
 
   let errorBuf = "";
@@ -427,7 +457,9 @@ ipcMain.handle("start-conversion", async (_evt, opts) => {
     const isNotFound = err.code === "ENOENT";
     mainWindow?.webContents.send("conversion-error", {
       message: isNotFound
-        ? `Python not found. Install Python 3.10+ and ensure it's on your PATH.`
+        ? (runner.mode === "python"
+            ? `Python not found. Install Python 3.10+ and ensure it's on your PATH.`
+            : `Conversion engine not found. Try reinstalling the app.`)
         : err.message,
     });
   });
@@ -466,11 +498,10 @@ ipcMain.handle("get-temp-output-path", () => {
 
 // Run convert.py --dry-run and return the FFmpeg command string
 ipcMain.handle("get-ffmpeg-command", async (_evt, opts) => {
-  const python = findPython();
-  const args = buildConvertArgs(opts);
-  args.push("--dry-run");
+  const runner = findConvertRunner();
+  const args = [...runner.baseArgs, ...buildConvertArgs(opts), "--dry-run"];
   return new Promise((resolve) => {
-    const proc = spawn(python, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(runner.cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     proc.stdout.on("data", (d) => (out += d.toString()));

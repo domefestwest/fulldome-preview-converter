@@ -263,6 +263,11 @@ export default function App() {
   // Help modal (keyboard shortcuts)
   const [showHelp, setShowHelp] = useState(false);
 
+  // Settings / system diagnostics modal
+  const [showSettings, setShowSettings] = useState(false);
+  const [recheckingSystem, setRecheckingSystem] = useState(false);
+  const [settingsToast, setSettingsToast] = useState("");
+
   // Tab reset toast
   const [tabResetToast, setTabResetToast] = useState("");
 
@@ -277,6 +282,7 @@ export default function App() {
   const scrubTimerRef = useRef(null);
   const isElectron = typeof window.api !== "undefined";
   const platform   = window.api?.platform || "darwin";
+  const appVersion = systemInfo?.appVersion || "";
 
   // Fetch system info once at startup — surfaces missing dependencies
   // and shows which encoder is actually being used.
@@ -303,7 +309,7 @@ export default function App() {
         e.preventDefault(); handleTestRender();
       } else if (e.key === "Escape") {
         if (status === "converting") handleCancel();
-        else { setShowRecent(false); setShowHelp(false); }
+        else { setShowRecent(false); setShowHelp(false); setShowSettings(false); }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -590,6 +596,69 @@ export default function App() {
     setTimeout(() => setCopyToast(""), 1500);
   }
 
+  // ---- Settings panel: system diagnostics + housekeeping ----
+
+  function flashSettingsToast(msg) {
+    setSettingsToast(msg);
+    setTimeout(() => setSettingsToast(""), 1800);
+  }
+
+  async function handleRecheckSystem() {
+    if (!isElectron) return;
+    setRecheckingSystem(true);
+    try {
+      const info = await window.api.getSystemInfo(true);
+      setSystemInfo(info);
+      flashSettingsToast(info?.ok ? "System check passed" : "Issue found — see above");
+    } finally {
+      setRecheckingSystem(false);
+    }
+  }
+
+  async function handleCopyDiagnostics() {
+    const lines = [
+      `Fulldome Preview Converter — Diagnostic Report`,
+      `App version: ${appVersion || "unknown"}`,
+      `Platform: ${systemInfo?.platform || platform}`,
+      `Conversion engine: ${systemInfo?.engine === "binary" ? "Built-in (compiled)" : "System Python"}`,
+      `Python runtime: ${systemInfo?.python || "n/a"}`,
+      `FFmpeg OK: ${systemInfo?.ffmpeg_ok ?? "unknown"}`,
+      `FFmpeg version: ${systemInfo?.ffmpeg_version || "n/a"}`,
+      `FFmpeg path: ${systemInfo?.ffmpeg_path || "n/a"}`,
+      `ffprobe OK: ${systemInfo?.ffprobe_ok ?? "unknown"}`,
+      `Encoder: ${systemInfo?.encoder_label || "unknown"} (${systemInfo?.encoder_kind || "n/a"})`,
+      `Font bundled: ${systemInfo?.font_bundled ?? "unknown"}`,
+      systemInfo && !systemInfo.ok ? `Error: ${systemInfo.error}` : null,
+    ].filter(Boolean);
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      flashSettingsToast("Diagnostic report copied");
+    } catch {
+      flashSettingsToast("Copy failed");
+    }
+  }
+
+  function handleResetAllSettings() {
+    if (!window.confirm("Reset all settings to defaults? Your presets and recent files are kept.")) return;
+    setSettings(DEFAULT_STATE);
+    setActivePreset("");
+    flashSettingsToast("Settings reset to defaults");
+  }
+
+  function handleClearRecentFiles() {
+    if (!window.confirm("Clear the recent files list?")) return;
+    setRecentFiles([]);
+    try { localStorage.removeItem("dfw-recent-files"); } catch {}
+    flashSettingsToast("Recent files cleared");
+  }
+
+  function handleClearPresets() {
+    if (!window.confirm("Delete all saved presets? Built-in presets are kept.")) return;
+    setPresets({});
+    setActivePreset("");
+    flashSettingsToast("Saved presets cleared");
+  }
+
   async function handleConvert() {
     if (!file || status === "converting") return;
     if (isElectron) {
@@ -782,6 +851,14 @@ export default function App() {
         )}
         <button
           className={styles.helpBtn}
+          onClick={() => setShowSettings(true)}
+          title="Settings & system status"
+          aria-label="Open settings and system status"
+        >
+          ⚙
+        </button>
+        <button
+          className={styles.helpBtn}
           onClick={() => setShowHelp(true)}
           title="Keyboard shortcuts"
           aria-label="Show keyboard shortcuts"
@@ -807,16 +884,127 @@ export default function App() {
         </div>
       )}
 
-      {/* System health banner — shown if Python or FFmpeg is missing */}
+      {showSettings && (
+        <div className={styles.modalBackdrop} onClick={() => setShowSettings(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <strong>Settings & System Status</strong>
+              <button className={styles.btnGhost} onClick={() => setShowSettings(false)}>Close</button>
+            </div>
+
+            <div className={styles.settingsSection}>
+              <div className={styles.settingsSectionHeader}>
+                <span className={styles.settingsSectionTitle}>System</span>
+                <button
+                  className={styles.btnGhost}
+                  onClick={handleRecheckSystem}
+                  disabled={recheckingSystem}
+                >
+                  {recheckingSystem ? "Checking…" : "Re-check"}
+                </button>
+              </div>
+
+              {!systemInfo && <p className={styles.hint}>Checking system…</p>}
+
+              {systemInfo && !systemInfo.ok && (
+                <div className={styles.settingsError}>
+                  <strong>Something needs attention:</strong>
+                  <p>{systemInfo.error || "System check failed."}</p>
+                </div>
+              )}
+
+              {systemInfo && (
+                <div className={styles.diagRows}>
+                  <div className={styles.diagRow}>
+                    <span>Conversion engine</span>
+                    <span>{systemInfo.engine === "binary" ? "Built-in (no Python required)" : "System Python (dev mode)"}</span>
+                  </div>
+                  <div className={styles.diagRow}>
+                    <span>Platform</span>
+                    <span>{systemInfo.platform || platform}</span>
+                  </div>
+                  <div className={styles.diagRow}>
+                    <span>FFmpeg</span>
+                    <span className={systemInfo.ffmpeg_ok ? styles.diagOk : styles.diagBad}>
+                      {systemInfo.ffmpeg_ok ? `✓ ${systemInfo.ffmpeg_version || "found"}` : "✗ not found"}
+                    </span>
+                  </div>
+                  <div className={styles.diagRow}>
+                    <span>Encoder</span>
+                    <span className={systemInfo.encoder_kind === "gpu" ? styles.diagOk : ""}>
+                      {systemInfo.encoder_label || "unknown"}
+                      {systemInfo.encoder_kind === "gpu" ? " (GPU)" : systemInfo.encoder_kind === "cpu" ? " (CPU)" : ""}
+                    </span>
+                  </div>
+                  <div className={styles.diagRow}>
+                    <span>Bundled font</span>
+                    <span className={systemInfo.font_bundled ? styles.diagOk : styles.diagBad}>
+                      {systemInfo.font_bundled ? "✓ DejaVu Sans" : "✗ missing"}
+                    </span>
+                  </div>
+                  {appVersion && (
+                    <div className={styles.diagRow}>
+                      <span>App version</span>
+                      <span>{appVersion}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button className={styles.btnGhost} style={{ marginTop: 10 }} onClick={handleCopyDiagnostics}>
+                📋 Copy diagnostic report
+              </button>
+            </div>
+
+            <div className={styles.settingsSection}>
+              <div className={styles.settingsSectionHeader}>
+                <span className={styles.settingsSectionTitle}>Performance</span>
+              </div>
+              <div className={styles.pipToggleRow} style={{ marginBottom: 0 }}>
+                <span className={styles.pipToggleLabel}>GPU Acceleration</span>
+                <button
+                  className={settings.hwAccel ? styles.toggleOn : styles.toggleOff}
+                  onClick={() => set("hwAccel")(!settings.hwAccel)}
+                  aria-pressed={settings.hwAccel}
+                >
+                  {settings.hwAccel ? "On" : "Off"}
+                </button>
+              </div>
+              <p className={styles.hint}>Mac: VideoToolbox · NVIDIA: NVENC · AMD/Intel Linux: VAAPI · AMD Windows: AMF · Intel: QSV</p>
+            </div>
+
+            <div className={styles.settingsSection}>
+              <div className={styles.settingsSectionHeader}>
+                <span className={styles.settingsSectionTitle}>Housekeeping</span>
+              </div>
+              <div className={styles.settingsActionsRow}>
+                <button className={styles.btnGhost} onClick={handleClearRecentFiles}>Clear recent files</button>
+                <button className={styles.btnGhost} onClick={handleClearPresets}>Clear saved presets</button>
+                <button className={styles.btnGhost} onClick={handleResetAllSettings}>Reset all settings</button>
+              </div>
+            </div>
+
+            {settingsToast && <div className={styles.settingsToast}>{settingsToast}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* System health banner — shown if the conversion engine or FFmpeg is missing */}
       {systemInfo && !systemInfo.ok && (
         <div className={styles.healthBanner}>
           <strong>Setup needed:</strong> {systemInfo.error || "System check failed."}
+          <button className={styles.btnGhost} style={{ marginLeft: 10 }} onClick={() => setShowSettings(true)}>
+            Open Settings
+          </button>
         </div>
       )}
       {systemInfo?.ok && !systemInfo.ffmpeg_ok && (
         <div className={styles.healthBanner}>
           <strong>FFmpeg not found.</strong> Install FFmpeg 6+ and make sure it's on your PATH,
           or place ffmpeg{platform === "win32" ? ".exe" : ""} in the app's bin/ folder.
+          <button className={styles.btnGhost} style={{ marginLeft: 10 }} onClick={() => setShowSettings(true)}>
+            Open Settings
+          </button>
         </div>
       )}
 

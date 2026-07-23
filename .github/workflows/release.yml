@@ -56,6 +56,12 @@ jobs:
       - name: Fetch FFmpeg binaries for ${{ matrix.target }}
         run: node scripts/fetch-ffmpeg.js --target=${{ matrix.target }}
 
+      - name: Install PyInstaller
+        run: python -m pip install --quiet pyinstaller
+
+      - name: Compile convert.py to a standalone binary (no Python required for end users)
+        run: node scripts/build-convert-binary.js
+
       - name: Build installer
         working-directory: gui
         run: npm run ${{ matrix.make }}
