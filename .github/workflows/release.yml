@@ -14,16 +14,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Intel Mac: GitHub retired the macos-13 hosted runner pool (jobs
+          # queue forever waiting for a machine that never comes). Until
+          # there's a new way to build native Intel Mac binaries in CI,
+          # Apple Silicon covers the vast majority of current Mac hardware —
+          # Intel users can build from source (see scripts/*.js) meanwhile.
           - os: macos-14         # Apple Silicon runner
             platform: mac-arm64
             target: mac-arm64
             make: make:mac -- --arm64
             artifact: "**/release/*-arm64.dmg"
-          - os: macos-13         # Intel Mac runner
-            platform: mac-x64
-            target: mac-x64
-            make: make:mac -- --x64
-            artifact: "**/release/*-x64.dmg"
           - os: windows-latest
             platform: win-x64
             target: win-x64
@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,7 +93,10 @@ jobs:
     name: Attach installers to GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Run even if one platform's build failed — attach whatever DID build
+    # rather than an all-or-nothing release. A flaky/removed runner for one
+    # platform shouldn't block shipping the others.
+    if: always() && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
@@ -109,10 +112,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/installer-mac-arm64/*
-            artifacts/installer-mac-x64/*
-            artifacts/installer-win-x64/*
-            artifacts/installer-linux-x64/*
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.blockmap
+            artifacts/**/*.yml
           draft: false
           prerelease: false
           generate_release_notes: true

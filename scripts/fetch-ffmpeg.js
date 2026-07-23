@@ -67,15 +67,22 @@ function detectTarget() {
   throw new Error(`Unsupported platform: ${platform}/${arch}`);
 }
 
-function download(url, outPath) {
+function download(url, outPath, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(outPath);
-    const handleResponse = (res) => {
+    https.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // Follow redirect
-        return https.get(res.headers.location, handleResponse).on("error", reject);
+        file.close();
+        if (redirectsLeft <= 0) return reject(new Error(`Too many redirects for ${url}`));
+        // Some servers (e.g. martin-riedl.de) send a relative Location
+        // header ("/download/..."), which https.get() can't use directly —
+        // resolve it against the URL that produced this redirect, not the
+        // original request, so multi-hop redirect chains work correctly.
+        const nextUrl = new URL(res.headers.location, url).href;
+        return download(nextUrl, outPath, redirectsLeft - 1).then(resolve, reject);
       }
       if (res.statusCode !== 200) {
+        file.close();
         return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
       }
       const total = parseInt(res.headers["content-length"] || "0", 10);
@@ -94,8 +101,7 @@ function download(url, outPath) {
         process.stdout.write("\r  ✓ 100%                            \n");
         file.close(resolve);
       });
-    };
-    https.get(url, handleResponse).on("error", reject);
+    }).on("error", reject);
   });
 }
 
